@@ -1,0 +1,3 @@
+[submodule "vendor/misp-docker"]
+	path = vendor/misp-docker
+	url = https://github.com/MISP/misp-docker.git

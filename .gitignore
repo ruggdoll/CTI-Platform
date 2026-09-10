@@ -1,0 +1,35 @@
+# Secrets / local config
+.env
+*.env.local
+secrets/
+provisioning/*.secret
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# MISP runtime data (bind-mounts created by docker compose in vendor/misp-docker)
+vendor/misp-docker/configs/
+vendor/misp-docker/logs/
+vendor/misp-docker/files/
+vendor/misp-docker/ssl/
+vendor/misp-docker/gnupg/
+vendor/misp-docker/.env
+
+data/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+scratchpad/
+
+# OpenCTI (Phase 4)
+opencti/.env
+opencti/upstream/
+opencti/data/
+
+# cache du socle VIGINUM et rapport d'autotest
+dist/

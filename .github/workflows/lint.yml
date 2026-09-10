@@ -1,0 +1,29 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff pyyaml
+      - name: ruff
+        run: ruff check provisioning
+      - name: compile
+        run: python -m compileall -q provisioning
+      - name: validate YAML
+        run: |
+          python - <<'PY'
+          import pathlib, yaml
+          for p in [pathlib.Path("compose.tuning.yml"), pathlib.Path("opencti/docker-compose.yml")] + list(pathlib.Path("provisioning").rglob("*.yaml")):
+              yaml.safe_load(p.read_text()); print("ok", p)
+          PY

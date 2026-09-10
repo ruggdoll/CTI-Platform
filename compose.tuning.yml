@@ -1,0 +1,33 @@
+# Override compose de la pile MISP de CTI-Platform : réglages MariaDB pour la
+# charge d'imports d'IOC, publication des ports, et noms de volumes explicites.
+# Appliqué par le Makefile (-f vendor/misp-docker/docker-compose.yml -f compose.tuning.yml).
+services:
+  db:
+    volumes:
+      - ${CTI_PLATFORM_ROOT}/docker/mariadb-tuning.cnf:/etc/mysql/mariadb.conf.d/99-cti-platform.cnf:ro
+    # cgroup : réserver la RAM au buffer pool (voir INNODB_BUFFER_POOL_SIZE dans .env)
+    mem_limit: 16g
+    mem_reservation: 8g
+
+  misp-core:
+    # imports longs : ne pas tuer un worker de feed en cours
+    environment:
+      - "FASTCGI_READ_TIMEOUT=600s"
+      - "PHP_MEMORY_LIMIT=3072M"
+    # Publication des ports sur l'interface choisie : 0.0.0.0 (défaut) rend MISP
+    # joignable par FQDN ou IP depuis une autre machine, 127.0.0.1 le restreint
+    # au poste local. Redéfinit la liste amont, qui écoute sur toutes les interfaces.
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTP_PORT:-80}:80"
+      - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTPS_PORT:-443}:443"
+
+# Noms de volumes explicites : sans `name:`, Docker préfixe par le nom du projet
+# compose et on se retrouve avec des volumes au nom hérité de l'historique du
+# dépôt. Ici on les nomme par produit et par rôle, lisibles dans `docker volume ls`.
+volumes:
+  mysql_data:
+    name: misp_bdd
+  cache_data:
+    name: misp_cache
+  misp_guard_ca:
+    name: misp_guard_ca

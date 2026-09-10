@@ -1,0 +1,351 @@
+# OpenCTI — stack allégé pour ruggdoll (Phase 4 du plan qualité).
+# Dérivé de OpenCTI-Platform/docker (upstream/), sans XTM One ni connecteurs
+# d'export. Le connecteur MISP est branché sur le réseau de la stack MISP.
+services:
+
+  redis:
+    image: redis:8.8.0
+    restart: always
+    volumes: [redisdata:/data]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 3}
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.16
+    volumes: [esdata:/usr/share/elasticsearch/data]
+    environment:
+      - discovery.type=single-node
+      - xpack.ml.enabled=false
+      - xpack.security.enabled=false
+      - thread_pool.search.queue_size=5000
+      - logger.org.elasticsearch.discovery=ERROR
+      - "ES_JAVA_OPTS=-Xms${ELASTIC_MEMORY_SIZE} -Xmx${ELASTIC_MEMORY_SIZE}"
+    restart: always
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      nofile: {soft: 65536, hard: 65536}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://elasticsearch:9200/_cluster/health?wait_for_status=yellow >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  minio:
+    image: minio/minio:latest
+    volumes: [s3data:/data]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data
+    restart: always
+    healthcheck: {test: ["CMD", "mc", "ready", "local"], interval: 10s, timeout: 5s, retries: 3}
+
+  rabbitmq:
+    image: rabbitmq:4.3-management
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}
+      - RABBITMQ_NODENAME=rabbit01@localhost
+    volumes:
+      - {type: bind, source: ./rabbitmq.conf, target: /etc/rabbitmq/rabbitmq.conf}
+      - amqpdata:/var/lib/rabbitmq
+    restart: always
+    healthcheck: {test: rabbitmq-diagnostics -q ping, interval: 30s, timeout: 30s, retries: 3}
+
+  opencti:
+    image: opencti/platform:7.260901.0
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=4096
+      - APP__PORT=8080
+      - APP__BASE_URL=${OPENCTI_EXTERNAL_SCHEME}://${OPENCTI_HOST}:${OPENCTI_PORT}
+      - APP__ADMIN__EMAIL=${OPENCTI_ADMIN_EMAIL}
+      - APP__ADMIN__PASSWORD=${OPENCTI_ADMIN_PASSWORD}
+      - APP__ADMIN__TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - APP__ENCRYPTION_KEY=${OPENCTI_ENCRYPTION_KEY}
+      - APP__HEALTH_ACCESS_KEY=${OPENCTI_HEALTHCHECK_ACCESS_KEY}
+      - REDIS__HOSTNAME=redis
+      - REDIS__PORT=6379
+      - ELASTICSEARCH__URL=http://elasticsearch:9200
+      - ELASTICSEARCH__NUMBER_OF_REPLICAS=0
+      - MINIO__ENDPOINT=minio
+      - MINIO__PORT=9000
+      - MINIO__USE_SSL=false
+      - MINIO__ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO__SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - RABBITMQ__HOSTNAME=rabbitmq
+      - RABBITMQ__PORT=5672
+      - RABBITMQ__PORT_MANAGEMENT=15672
+      - RABBITMQ__MANAGEMENT_SSL=false
+      - RABBITMQ__USERNAME=${RABBITMQ_DEFAULT_USER}
+      - RABBITMQ__PASSWORD=${RABBITMQ_DEFAULT_PASS}
+      - SMTP__HOSTNAME=${SMTP_HOSTNAME}
+      - SMTP__PORT=25
+      - PROVIDERS__LOCAL__STRATEGY=LocalStrategy
+    # Publication du port : BIND_ADDRESS=0.0.0.0 (défaut) pour une infra jointe
+    # par FQDN ou IP depuis d'autres machines ; 127.0.0.1 pour un poste isolé.
+    # OPENCTI_HOST doit porter le MÊME nom que celui utilisé par les clients,
+    # sinon APP__BASE_URL est faux et l'interface distante casse (liens, CSRF).
+    ports: ["${BIND_ADDRESS:-0.0.0.0}:${OPENCTI_PORT}:8080"]
+    depends_on:
+      redis: {condition: service_healthy}
+      elasticsearch: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://opencti:8080/health?health_access_key=${OPENCTI_HEALTHCHECK_ACCESS_KEY}"]
+      interval: 10s
+      timeout: 5s
+      # Premier boot : initialisation du schéma + migrations, plusieurs minutes
+      # sur une machine modeste. Avec 30 essais (5 min) 'make opencti-up' rendait
+      # la main sur « container is unhealthy » alors que la plateforme démarrait
+      # normalement, et les connecteurs (depends_on: service_healthy) ne
+      # partaient pas. 90 essais = 15 min de marge.
+      retries: 90
+
+  worker:
+    image: opencti/worker:7.260901.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - WORKER_LOG_LEVEL=info
+    depends_on:
+      opencti: {condition: service_healthy}
+    deploy: {mode: replicated, replicas: 2}
+    restart: always
+
+  # ---- connecteurs internes ----
+  connector-import-file-stix:
+    image: opencti/connector-import-file-stix:7.260901.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_IMPORT_FILE_STIX_ID}
+      - CONNECTOR_TYPE=INTERNAL_IMPORT_FILE
+      - CONNECTOR_NAME=ImportFileStix
+      - CONNECTOR_VALIDATE_BEFORE_IMPORT=true
+      - CONNECTOR_SCOPE=application/json,text/xml
+      - CONNECTOR_AUTO=true
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+  connector-import-document:
+    image: opencti/connector-import-document:7.260901.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_IMPORT_DOCUMENT_ID}
+      - CONNECTOR_TYPE=INTERNAL_IMPORT_FILE
+      - CONNECTOR_NAME=ImportDocument
+      - CONNECTOR_VALIDATE_BEFORE_IMPORT=true
+      - CONNECTOR_SCOPE=application/pdf,text/plain,text/html
+      - CONNECTOR_AUTO=true
+      - CONNECTOR_ONLY_CONTEXTUAL=false
+      - IMPORT_DOCUMENT_CREATE_INDICATOR=true
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+  connector-analysis:
+    image: opencti/connector-import-document:7.260901.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_ANALYSIS_ID}
+      - CONNECTOR_TYPE=INTERNAL_ANALYSIS
+      - CONNECTOR_NAME=ImportDocumentAnalysis
+      - CONNECTOR_VALIDATE_BEFORE_IMPORT=false
+      - CONNECTOR_SCOPE=application/pdf,text/plain,text/html
+      - CONNECTOR_AUTO=true
+      - CONNECTOR_ONLY_CONTEXTUAL=false
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+  # ---- socle de connaissance : MITRE ATT&CK ----
+  # Premier connecteur a tourner, et SEUL au premier demarrage : c'est le
+  # referentiel sur lequel tout le reste se raccroche (attack-pattern par
+  # external_id T1xxx, groupes, malwares). Un rapport importe avant lui cree
+  # des attack-patterns en souche qu'il faut fusionner ensuite. Borne (~800
+  # techniques) : quelques minutes sans concurrence, des heures avec.
+  #
+  # `connector-opencti` (« OpenCTI Datasets ») a ete RETIRE definitivement le
+  # 2026-09-08 : il reimporte un jeu de donnees de reference qu'on n'a pas
+  # demande (32 610 messages sur une base neuve, un tiers de la file) et il
+  # avait recree des rapports VIGINUM sous la paternite de notre organisation
+  # au lieu de celle de VIGINUM, sans dedup possible. ATT&CK fournit deja les
+  # acteurs, malwares et techniques de reference.
+  connector-mitre:
+    image: opencti/connector-mitre:7.260901.0
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_MITRE_ID}
+      - CONNECTOR_NAME=MITRE ATT&CK
+      # PAS de CONNECTOR_SCOPE ici. Le connecteur n'en avait pas et il n'en faut
+      # pas : une liste explicite est un FILTRE, pas de la documentation. En
+      # ajouter une en oubliant `campaign` (2026-09-09) a fait echouer 100 % des
+      # relations ATT&CK pointant vers une campagne — MISSING_REFERENCE_ERROR en
+      # boucle, file videe par abandon apres rejeux, debit plafonne a 14
+      # messages/minute, socle jamais complet. Symptome : 0 campagne en base et
+      # des `unresolvedIds: ['campaign--...']` dans les logs des workers.
+      - CONNECTOR_LOG_LEVEL=info
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+  # ---- flux externes ----
+  # Les connecteurs abuse.ch natifs (URLhaus, ThreatFox) ont ete RETIRES le
+  # 2026-09-08 : ces memes IOC entrent deja par MISP (importateurs 02/16/…)
+  # puis remontent par le pont MISP -> OpenCTI. Deux chemins pour la meme
+  # donnee, alors que la regle de routage dit : listes d'observables qualifies
+  # -> MISP, et le pont fait le reste. En prime, la licence abuse.ch interdit
+  # la redistribution commerciale : ces IOC servent au recoupement interne.
+  #
+  # Les flux ci-dessous portent le profil `feeds` : ils ne demarrent PAS avec
+  # `make opencti-up`, mais avec `make opencti-feeds`, une fois l'ATT&CK en
+  # base. Sur 4 coeurs, tout demarrer ensemble sature les workers.
+  connector-cisa-kev:
+    image: opencti/connector-cisa-known-exploited-vulnerabilities:7.260901.0
+    profiles: ["feeds"]
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_CISA_KEV_ID}
+      - "CONNECTOR_NAME=CISA Known Exploited Vulnerabilities"
+      - CONNECTOR_SCOPE=cisa
+      - CONNECTOR_LOG_LEVEL=error
+      - CONNECTOR_RUN_AND_TERMINATE=false
+      - CISA_CATALOG_URL=https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+      - CISA_CREATE_INFRASTRUCTURES=false
+      - CISA_INTERVAL=2
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+  # ---- pont MISP -> OpenCTI ----
+  connector-misp:
+    image: opencti/connector-misp:7.260901.0
+    networks: [default, misp]
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_MISP_ID}
+      - CONNECTOR_NAME=MISP (ruggdoll)
+      - CONNECTOR_SCOPE=misp
+      - CONNECTOR_LOG_LEVEL=info
+      - CONNECTOR_DURATION_PERIOD=PT10M
+      - MISP_URL=${MISP_URL}
+      - MISP_KEY=${MISP_KEY}
+      - MISP_SSL_VERIFY=false
+      # false : les events ruggdoll (scrapers/feeds IOC) n'ont aucune valeur
+      # narrative — description = titre, aucune analyse, juste des Indicator/
+      # Observable en based-on/related-to. Un Report par event pollue la vue
+      # Reports d'OpenCTI sans apporter de lecture. Les indicateurs/observables
+      # continuent d'être créés normalement (flags ci-dessous inchangés).
+      - MISP_CREATE_REPORTS=false
+      - MISP_CREATE_INDICATORS=true
+      - MISP_CREATE_OBSERVABLES=true
+      - MISP_CREATE_OBJECT_OBSERVABLES=true
+      # false : chaque tag galaxie devient un label + une méta-relation par objet
+      # -> l'index stix_meta_relationships gonfle et le débit d'ingestion chute.
+      - MISP_CREATE_TAGS_AS_LABELS=false
+      # false : la corrélation attribut×galaxie explose en O(n²) sur les gros
+      # events (>2000 attrs) et bloque le connecteur. L'attribution passe déjà
+      # par les galaxies MISP -> intrusion-sets OpenCTI directement.
+      - MISP_GUESS_THREATS_FROM_TAGS=false
+      - MISP_MARKINGS_FROM_TAGS=true
+      - MISP_REPORT_TYPE=threat-report
+      # URL publique à afficher dans les external_references des Reports
+      # importés (jamais le hostname Docker interne cti-platform-misp-misp-core-1,
+      # inaccessible et inutile pour un lecteur externe). Vient de
+      # MISP_REFERENCE_URL dans opencti/.env, aligné sur CTI_HOSTNAME par
+      # `make init` — c'est l'URL que verront les lecteurs des rapports.
+      - MISP_REFERENCE_URL=${MISP_REFERENCE_URL}
+      - MISP_IMPORT_FROM_DATE=${MISP_IMPORT_FROM_DATE}
+      # distribution=1 exclu : c'est exactement (et exclusivement, vérifié
+      # empiriquement — 422/422 events) le niveau utilisé par notre propre
+      # pont retour OpenCTI -> MISP (connector-misp-intel,
+      # MISP_DISTRIBUTION_LEVEL=1 ci-dessous) ; sans cette exclusion, ce
+      # connecteur réimporte tout ce qu'on vient d'exporter (boucle).
+      - MISP_IMPORT_DISTRIBUTION_LEVELS=0,3
+      - MISP_IMPORT_THREAT_LEVELS=1,2,3,4
+      - MISP_THREAT_LEVEL_SCORE_MAPPING=1:90;2:65;3:35;4:40
+      - MISP_IMPORT_ONLY_PUBLISHED=false
+      - MISP_IMPORT_WITH_ATTACHMENTS=false
+      - MISP_IMPORT_KEYWORD=
+      - MISP_IMPORT_CREATOR_ORGS=${MISP_ORG}
+      # opencti-bridge="skip" : events >4000 attributs (dumps d'IOC bruts type
+      # dépôts GitHub / trackers C2) — restent dans MISP (système de référence),
+      # pas déversés dans le graphe OpenCTI. Voir provisioning/opencti_bridge_skip.md
+      - MISP_ATTRIBUTE_TIMESTAMP_FILTERING=true
+      # exclusions : blocklists volumineuses (opencti-bridge="skip") + tag
+      # défensif source:opencti (vérifié 2026-09-06 : connector-misp-intel ne
+      # pose PAS ce tag en pratique malgré MISP_TAG_OPENCTI=true — gardé sans
+      # effet nuisible, la vraie protection anti-boucle est désormais
+      # MISP_IMPORT_DISTRIBUTION_LEVELS ci-dessus).
+      - 'MISP_IMPORT_TAGS_NOT=osint:source-type="block-or-filter-list",source:Infoblox,cti-platform:opencti-bridge="skip",source:opencti'
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+  # ---- pont OpenCTI -> MISP (connecteur officiel misp-intel) ----
+  # CHEMIN NOMINAL d'un rapport vers MISP : reprend les Reports (et les objets
+  # qu'ils contiennent) créés dans OpenCTI par le pipeline de rapports et les
+  # recrée comme events MISP. Aucun rapport ne se saisit à la main dans MISP.
+  # Filtre = live stream OpenCTI « entity_type=Report ET label export-misp »,
+  # créé par 'make bridge-setup' (provisioning/bridge_setup.py), qui écrit son
+  # id dans CONNECTOR_MISP_INTEL_STREAM_ID.
+  connector-misp-intel:
+    image: opencti/connector-misp-intel:1.0.0
+    networks: [default, misp]
+    environment:
+      - OPENCTI_URL=http://opencti:8080
+      - OPENCTI_TOKEN=${OPENCTI_ADMIN_TOKEN}
+      - CONNECTOR_ID=${CONNECTOR_MISP_INTEL_ID}
+      - CONNECTOR_NAME=OpenCTI -> MISP (${MISP_ORG})
+      - CONNECTOR_SCOPE=misp
+      - CONNECTOR_LOG_LEVEL=info
+      - CONNECTOR_LIVE_STREAM_ID=${CONNECTOR_MISP_INTEL_STREAM_ID}
+      - CONNECTOR_LIVE_STREAM_LISTEN_DELETE=true
+      - CONNECTOR_LIVE_STREAM_NO_DEPENDENCIES=false
+      - CONNECTOR_CONTAINER_TYPES=report
+      # URL PUBLIQUE ici, pas le nom Docker interne. Ce connecteur n'a pas de
+      # réglage séparé pour les références : il construit le lien de retour
+      # écrit dans le Report OpenCTI avec MISP_URL lui-même
+      # (connector.py:297, `{misp.url}/events/view/{id}`). Avec le nom interne,
+      # chaque rapport exporté repartait avec une référence
+      # `https://<projet>-misp-core-1/events/view/N`, inutilisable pour un
+      # lecteur — 362 rapports sur 365 au contrôle du 2026-09-09.
+      # `extra_hosts` ci-dessous rend ce nom résolvable depuis le conteneur.
+      - MISP_URL=${MISP_REFERENCE_URL}
+      - MISP_API_KEY=${MISP_KEY}
+      - MISP_SSL_VERIFY=false
+      - MISP_OWNER_ORG=${MISP_ORG}
+      - MISP_DISTRIBUTION_LEVEL=1
+      - MISP_THREAT_LEVEL=3
+      - MISP_PUBLISH_ON_CREATE=false
+      - MISP_PUBLISH_ON_UPDATE=false
+      - MISP_TAG_OPENCTI=true
+      - "MISP_TAG_PREFIX=opencti:"
+      - MISP_DETECT_ROUND_TRIP=true
+    # Le nom public de la plateforme n'est pas résolvable dans le réseau Docker :
+    # on le fait pointer sur l'hôte, où MISP publie ses ports.
+    extra_hosts:
+      - "${OPENCTI_HOST}:host-gateway"
+    restart: always
+    depends_on: {opencti: {condition: service_healthy}}
+
+networks:
+  default:
+  misp:
+    # réseau du projet compose de la pile MISP (MISP_PROJECT dans le Makefile) :
+    # c'est par là que les deux connecteurs joignent misp-core.
+    external: true
+    name: cti-platform-misp_default
+
+# Noms de volumes explicites (pas de préfixe hérité du nom de projet compose) :
+# lisibles tels quels dans `docker volume ls`, par produit et par rôle.
+volumes:
+  esdata:
+    name: opencti_bdd
+  s3data:
+    name: opencti_fichiers
+  redisdata:
+    name: opencti_redis
+  amqpdata:
+    name: opencti_amqp
