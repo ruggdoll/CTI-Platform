@@ -20,6 +20,11 @@ services:
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTP_PORT:-80}:80"
       - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTPS_PORT:-443}:443"
+    # Le healthcheck amont fait `curl ${BASE_URL}/users/heartbeat` DEPUIS le
+    # conteneur : le nom public doit s'y résoudre. On le renvoie sur l'hôte, où
+    # les ports sont publiés (même mécanisme que connector-misp-intel).
+    extra_hosts:
+      - "${CTI_HOSTNAME:-localhost}:host-gateway"
 
 # Noms de volumes explicites : sans `name:`, Docker préfixe par le nom du projet
 # compose et on se retrouve avec des volumes au nom hérité de l'historique du

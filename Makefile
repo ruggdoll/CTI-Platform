@@ -82,6 +82,7 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	    sed -i "s|^$$key=.*|$$key=$$val|" "$(ENV_FILE)"; \
 	  done; \
 	  sed -i "s|^BASE_URL=.*|BASE_URL=https://$(HOST)|" "$(ENV_FILE)"; \
+	  sed -i "s|^CTI_HOSTNAME=.*|CTI_HOSTNAME=$(HOST)|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_ORG=.*|ADMIN_ORG=$(MISP_ORG)|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_KEY=.*|ADMIN_KEY=$$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40)|" "$(ENV_FILE)"; \
 	  echo "  $(ENV_FILE) généré (BASE_URL=https://$(HOST), org $(MISP_ORG))"; \
