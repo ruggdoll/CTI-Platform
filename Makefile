@@ -3,12 +3,17 @@ DOCKER_DIR := vendor/misp-docker
 ENV_FILE := $(DOCKER_DIR)/.env
 PY := python3
 
-# Accès au démon Docker. Si la session shell n'est pas (encore) dans le groupe
-# `docker` — cas classique juste après `usermod -aG docker` sans reconnexion —
-# on relaie chaque commande via `sg docker -c` (aucun mot de passe requis dès
-# lors que l'utilisateur figure dans /etc/group). Sinon exécution directe.
-IN_DOCKER_GROUP := $(shell id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker && echo 1)
-ifeq ($(IN_DOCKER_GROUP),1)
+# Accès au démon Docker. Le test porte sur une CAPACITÉ, pas sur une
+# appartenance : sur un hôte ROOTLESS il n'existe pas de groupe `docker` — le
+# socket appartient à l'utilisateur et `DOCKER_HOST` le désigne. Un test
+# d'appartenance y est toujours faux et fait tomber les 15 cibles sur
+# `sg docker -c`, qui réclame alors le mot de passe DU GROUPE et échoue sans
+# terminal (« sg: getline() failed »). On demande donc au démon s'il répond.
+# `sg docker -c` ne sert plus qu'au cas pour lequel il a été écrit : un
+# `usermod -aG docker` sans reconnexion, où le groupe existe déjà dans
+# /etc/group mais pas encore dans la session.
+DOCKER_DIRECT := $(shell docker info >/dev/null 2>&1 && echo 1)
+ifeq ($(DOCKER_DIRECT),1)
 RUN := bash -c
 else
 RUN := sg docker -c
