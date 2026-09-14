@@ -32,11 +32,19 @@ propres outils d'alimentation, par les interfaces standard des deux produits
 ```bash
 git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform
 cd CTI-Platform
-make venv                      # environnement Python (une fois)
 
+# Hôte neuf (Debian 13, Docker rootless) : tout ce qui exige root, une fois.
+sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn|ip>
+
+# Puis, connecté en tant que ce compte :
 make build HOST=<fqdn|ip>      # construit TOUTE la plateforme, dans le bon ordre
 make bridge-test               # contrôle de bout en bout
 ```
+
+Le rootless est le mode visé : aucun groupe root-équivalent, le socket Docker
+appartient au compte qui porte la plateforme. `make build` détecte le mode et
+dimensionne les deux piles sur la RAM réelle de la machine. Le mode rootful
+reste utilisable sans réglage particulier.
 
 `HOST` est **le** paramètre du déploiement : le nom (FQDN) ou l'IP par lequel
 les clients joindront la plateforme. `make build` enchaîne les huit étapes et

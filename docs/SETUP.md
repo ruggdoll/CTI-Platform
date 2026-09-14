@@ -12,33 +12,50 @@ capacité — « est-ce que le démon me répond ? ». Les deux modes fonctionne
 donc sans réglage, et le **rootless est le mode recommandé** : il n'exige aucun
 groupe root-équivalent.
 
-### Hôte en Docker rootless
+### Hôte en Docker rootless — une commande
 
-Quatre points à poser avant `make build`, une fois pour toutes :
+Sur une Debian 13 vierge, tout ce qui exige root tient dans un script, à lancer
+**une fois** :
 
 ```bash
-# plages d'UID/GID déléguées au compte qui fera tourner la plateforme
-grep "$USER" /etc/subuid /etc/subgid      # sinon : usermod --add-subuids … --add-subgids …
-
-# la session utilisateur survit à la déconnexion (sinon les conteneurs meurent avec le SSH)
-sudo loginctl enable-linger "$USER"
-
-# Elasticsearch refuse de démarrer en dessous de 262144 — réglage d'hôte, pas de conteneur
-echo 'vm.max_map_count=1048575' | sudo tee /etc/sysctl.d/99-cti-platform.conf && sudo sysctl --system
-
-# ports 80/443 : un démon rootless ne les lie pas par défaut
-sudo setcap cap_net_bind_service=ep "$(command -v rootlesskit)"
-#   variante plus large : sysctl net.ipv4.ip_unprivileged_port_start=80
-#   variante sans privilège : CORE_HTTP_PORT=8080 / CORE_HTTPS_PORT=8443 + relais en amont
+sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn> [--ip <adresse>]
 ```
 
-Elasticsearch réclame aussi 65536 descripteurs et la pile pose `memlock: -1` :
-un démon rootless ne peut pas relever ces limites au-delà de celles de
-l'utilisateur, donc `/etc/security/limits.d/` doit les accorder au compte.
+Il est idempotent et ne fait rien d'autre que ce qui suit — chaque point
+correspond à un échec de déploiement réel, silencieux ou illisible :
 
-`provisioning/diag_rootless.sh` contrôle le résultat sans rien modifier :
-mode du démon, pilote de stockage, capacité de MinIO à écrire (volume nommé
-**et** répertoire lié), et liaison effective des ports privilégiés.
+| Ce qu'il pose | Sans quoi |
+|---|---|
+| `uidmap`, `dbus-user-session`, `slirp4netns`, outillage | le démon rootless ne démarre pas, message obscur |
+| Docker CE + `docker-ce-rootless-extras`, démon **rootful désactivé** | pas de `dockerd-rootless-setuptool.sh` ; un démon root actif en parallèle |
+| `cap_net_bind_service` sur `rootlesskit` | un démon rootless ne lie ni 80 ni 443 |
+| `vm.max_map_count=1048575` | Elasticsearch refuse de démarrer (contrôle bloquant) |
+| le compte, ses plages `subuid`/`subgid` | `newuidmap` ne peut pas construire l'espace de noms |
+| `nofile` 65536 et `memlock` illimité | un démon rootless **ne peut pas** relever ces limites lui-même |
+| `loginctl enable-linger` | les conteneurs meurent à la déconnexion SSH |
+| le FQDN sur l'IP du LAN dans `/etc/hosts` | l'installateur Debian le laisse sur `127.0.1.1`, et MISP comme OpenCTI fabriquent alors toutes leurs URL absolues sur du loopback |
+| le démon rootless du compte, démarré et vérifié | — |
+
+Le script refuse d'aller au bout si le nom public résout sur du loopback ou si
+aucune adresse globale n'est trouvable : ce sont des erreurs qui ne se voient
+qu'une heure plus tard, une fois la plateforme construite.
+
+`provisioning/rootless_setup.sh` est la seconde moitié, sans privilège : elle
+s'exécute seule si le démon d'un compte est à (re)poser. À lancer dans une
+**vraie session** du compte — connexion SSH, console ou `machinectl shell` —
+jamais par `sudo -u`, qui ne fournit ni `XDG_RUNTIME_DIR` ni bus systemd et
+laisse le client Docker muet sans explication.
+
+Puis, en tant que ce compte :
+
+```bash
+git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform ~/CTI-Platform
+cd ~/CTI-Platform && make build HOST=<fqdn>
+```
+
+`provisioning/diag_rootless.sh` contrôle l'hôte à tout moment sans rien
+modifier : mode du démon, pilote de stockage, capacité de MinIO à écrire
+(volume nommé **et** répertoire lié), liaison effective des ports privilégiés.
 
 ## 1. Récupération
 

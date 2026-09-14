@@ -75,6 +75,19 @@ endif
 # connecteurs) restent tirés au hasard : ils ne se saisissent jamais.
 DEFAULT_PASSWORD ?= MyP@ssword42!
 
+# Dimensionnement mémoire, calculé à la création des .env. Les valeurs des
+# .env.example visaient une machine de 31 Go dédiée à MISP ; ici les DEUX piles
+# cohabitent (MariaDB + Elasticsearch + OpenCTI + workers + connecteurs), donc
+# les 40 % de RAM d'un serveur MISP seul ne tiennent pas. Sur une machine plus
+# petite, les valeurs d'origine font swapper puis tuer des conteneurs, sans que
+# la cause soit lisible dans les journaux.
+#   MariaDB : 20 % de la RAM, borné à [1 Go, 12 Go]
+#   Elasticsearch (heap) : 25 %, borné à [2 Go, 8 Go]
+# Surchargeables : make init HOST=... INNODB_POOL=4096M ELASTIC_MEM=3G
+MEM_MO := $(shell awk '/^MemTotal:/{printf "%d", $$2/1024}' /proc/meminfo 2>/dev/null || echo 16384)
+INNODB_POOL ?= $(shell m=$$(( $(MEM_MO) * 20 / 100 )); [ $$m -lt 1024 ] && m=1024; [ $$m -gt 12288 ] && m=12288; echo $${m}M)
+ELASTIC_MEM ?= $(shell m=$$(( $(MEM_MO) / 4 / 1024 )); [ $$m -lt 2 ] && m=2; [ $$m -gt 8 ] && m=8; echo $${m}G)
+
 # Organisation qui porte la plateforme, des DEUX côtés : org #1 de MISP
 # (ADMIN_ORG) et valeur lue par les deux ponts (MISP_IMPORT_CREATOR_ORGS pour
 # l'import, MISP_OWNER_ORG pour l'export). Si les deux divergent, MISP et
@@ -105,6 +118,7 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  sed -i "s|^BASE_URL=.*|BASE_URL=https://$(HOST)|" "$(ENV_FILE)"; \
 	  sed -i "s|^CTI_HOSTNAME=.*|CTI_HOSTNAME=$(HOST)|" "$(ENV_FILE)"; \
 	  sed -i "s|^CTI_HOST_TARGET=.*|CTI_HOST_TARGET=$(HOST_TARGET)|" "$(ENV_FILE)"; \
+	  sed -i "s|^INNODB_BUFFER_POOL_SIZE=.*|INNODB_BUFFER_POOL_SIZE=$(INNODB_POOL)   # dimensionné par make init sur $(MEM_MO) Mo de RAM|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_ORG=.*|ADMIN_ORG=$(MISP_ORG)|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_KEY=.*|ADMIN_KEY=$$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40)|" "$(ENV_FILE)"; \
 	  echo "  $(ENV_FILE) généré (BASE_URL=https://$(HOST), org $(MISP_ORG))"; \
@@ -123,11 +137,13 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  sed -i "s|^OPENCTI_HOST=.*|OPENCTI_HOST=$(HOST)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_REFERENCE_URL=.*|MISP_REFERENCE_URL=https://$(HOST)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^CTI_HOST_TARGET=.*|CTI_HOST_TARGET=$(HOST_TARGET)|" "$(OCTI_ENV)"; \
+	  sed -i "s|^ELASTIC_MEMORY_SIZE=.*|ELASTIC_MEMORY_SIZE=$(ELASTIC_MEM)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_IMPORT_FROM_DATE=.*|MISP_IMPORT_FROM_DATE=$$(date +%F)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_ORG=.*|MISP_ORG=$(MISP_ORG)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_KEY=.*|MISP_KEY=$$(grep -E '^ADMIN_KEY=' "$(ENV_FILE)" | cut -d= -f2)|" "$(OCTI_ENV)"; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(HOST), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
 	fi
+	@echo "  Mémoire ($(MEM_MO) Mo) : buffer pool MariaDB $(INNODB_POOL), heap Elasticsearch $(ELASTIC_MEM)"
 	@echo "  Cible extra_hosts des conteneurs (CTI_HOST_TARGET) : $(HOST_TARGET)$(if $(ROOTLESS), — démon rootless détecté,)"
 	@case "$(HOST_TARGET)" in 127.*) echo "  ATTENTION : CTI_HOST_TARGET est une adresse de loopback. Un conteneur n'y joindra pas l'hôte."; echo "  Corriger /etc/hosts (le nom public doit pointer sur l'IP du LAN) ou passer HOST_TARGET=<ip> explicitement.";; esac
 	@echo "→ MISP    : https://$(HOST)      (admin@… / $(DEFAULT_PASSWORD))"
