@@ -172,6 +172,25 @@ venv: ## Crée l'environnement Python (.venv) des outils de la plateforme
 	@echo "→ activer avec: source .venv/bin/activate"
 
 
+.PHONY: diag-rootless
+diag-rootless: ## DIAGNOSTIQUE l'hôte (rootless, pilote de stockage, MinIO, ports privilégiés) — ne modifie rien
+	bash provisioning/diag_rootless.sh
+
+.PHONY: minio-droits
+minio-droits: ## RÉPARE les droits du volume de fichiers MinIO quand il refuse d'écrire (ARGS=<uid>:<gid>)
+	@# Un volume Docker neuf appartient à root:root. Si le processus MinIO de
+	@# l'image tourne sous un autre compte — image récente, démon en mode
+	@# rootless, ou remappage d'espace de noms utilisateur — il ne peut rien y
+	@# écrire et rend « file access denied, drive may be faulty ». La reprise en
+	@# main se fait par un conteneur root jetable : elle ne demande AUCUN droit
+	@# root sur l'hôte, l'appartenance au groupe docker suffit.
+	@vol=$$(docker volume ls -q --filter name=opencti_fichiers | head -1); \
+	test -n "$$vol" || { echo "volume opencti_fichiers absent — rien à réparer"; exit 1; }; \
+	cible=$${ARGS:-$$(docker image inspect $$(docker compose -p cti-platform-opencti --project-directory $(PWD)/opencti --env-file $(PWD)/opencti/.env -f $(PWD)/opencti/docker-compose.yml config --images 2>/dev/null | grep -i minio | head -1) --format '{{.Config.User}}' 2>/dev/null)}; \
+	cible=$${cible:-0:0}; \
+	echo "appropriation de $$vol par $$cible"; \
+	docker run --rm -v $$vol:/data alpine:3 sh -c "chown -R $$cible /data && ls -ld /data"
+
 .PHONY: opencti-up
 opencti-up: ## démarre le stack OpenCTI (Phase 4) — ~12 Go RAM
 	@test -f opencti/.env || { echo "opencti/.env absent — lancer 'make init HOST=<fqdn|ip>'"; exit 1; }

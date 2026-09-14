@@ -30,8 +30,19 @@ services:
       retries: 60
 
   minio:
-    image: minio/minio:latest
-    volumes: [s3data:/data]
+    # Image ÉPINGLÉE et tirée de quay.io, jamais `minio/minio:latest` de Docker
+    # Hub : au 2026-09-14, ce dépôt refuse le téléchargement anonyme
+    # (« pull access denied … may require docker login »), ce qui fait échouer
+    # toute construction sur une machine neuve alors qu'elle passe sur une
+    # machine où l'image traîne déjà en cache. quay.io sert la même image
+    # (même identifiant de couche) sans authentification.
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    # `MINIO_DATA` permet de remplacer le volume nommé par un RÉPERTOIRE de
+    # l'hôte, sans toucher au fichier : repli utile sur un démon rootless dont
+    # le pilote de stockage ne convient pas à MinIO (il refuse de démarrer avec
+    # « file access denied, drive may be faulty »). `provisioning/diag_rootless.sh`
+    # dit laquelle des deux voies fonctionne sur la machine cible.
+    volumes: ["${MINIO_DATA:-s3data}:/data"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
