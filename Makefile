@@ -60,7 +60,7 @@ OCTI_ENV := opencti/.env
 #     de noms de l'HÔTE. Un conteneur doit alors viser l'adresse réelle de
 #     l'hôte, qu'il atteint par sa sortie réseau normale.
 # Détectée depuis HOST quand le démon est rootless, sinon `host-gateway`.
-# Surchargeable dans tous les cas : make init HOST=… HOST_TARGET=192.168.0.40
+# Surchargeable dans tous les cas : make init HOST=<fqdn> HOST_TARGET=<ip de l’hôte>
 ROOTLESS := $(shell docker info --format '{{range .SecurityOptions}}{{.}}{{end}}' 2>/dev/null | grep -qi rootless && echo 1)
 ifeq ($(ROOTLESS),1)
 HOST_TARGET ?= $(firstword $(shell getent hosts $(HOST) 2>/dev/null | awk '{print $$1; exit}') host-gateway)
