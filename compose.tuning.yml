@@ -23,8 +23,12 @@ services:
     # Le healthcheck amont fait `curl ${BASE_URL}/users/heartbeat` DEPUIS le
     # conteneur : le nom public doit s'y résoudre. On le renvoie sur l'hôte, où
     # les ports sont publiés (même mécanisme que connector-misp-intel).
+    # CTI_HOST_TARGET vaut `host-gateway` en rootful ; en ROOTLESS il doit valoir
+    # l'adresse réelle de l'hôte (`make init` la détecte) — `host-gateway` y
+    # désigne un pont où rien n'écoute et le healthcheck reste unhealthy pour
+    # toujours, alors que MISP répond parfaitement depuis l'extérieur.
     extra_hosts:
-      - "${CTI_HOSTNAME:-localhost}:host-gateway"
+      - "${CTI_HOSTNAME:-localhost}:${CTI_HOST_TARGET:-host-gateway}"
 
 # Noms de volumes explicites : sans `name:`, Docker préfixe par le nom du projet
 # compose et on se retrouve avec des volumes au nom hérité de l'historique du

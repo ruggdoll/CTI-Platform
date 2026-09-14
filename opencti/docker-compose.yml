@@ -335,9 +335,12 @@ services:
       - "MISP_TAG_PREFIX=opencti:"
       - MISP_DETECT_ROUND_TRIP=true
     # Le nom public de la plateforme n'est pas résolvable dans le réseau Docker :
-    # on le fait pointer sur l'hôte, où MISP publie ses ports.
+    # on le fait pointer sur l'hôte, où MISP publie ses ports. CTI_HOST_TARGET
+    # vaut `host-gateway` en rootful ; en ROOTLESS il doit valoir l'adresse
+    # réelle de l'hôte (`make init` la détecte), sans quoi CE PONT NE PUBLIE
+    # RIEN : `host-gateway` y désigne un pont où aucun port n'est écouté.
     extra_hosts:
-      - "${OPENCTI_HOST}:host-gateway"
+      - "${OPENCTI_HOST}:${CTI_HOST_TARGET:-host-gateway}"
     restart: always
     depends_on: {opencti: {condition: service_healthy}}
 

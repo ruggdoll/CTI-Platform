@@ -3,10 +3,42 @@
 ## 0. Prérequis
 
 - Docker Engine + plugin `docker compose` v2
-- L'utilisateur courant dans le groupe `docker` (`id | grep docker` ; sinon
-  `sudo usermod -aG docker $USER` puis **reconnexion**)
 - `git`, `python3` (>= 3.10), `make`
-- ~4 Go RAM libres, ~10 Go disque
+- ~4 Go RAM libres pour MISP seul, **~12 Go de plus** pour la pile OpenCTI
+- Disque : ~10 Go pour MISP, nettement plus avec Elasticsearch et MinIO
+
+L'accès au démon n'est plus testé par appartenance au groupe `docker` mais par
+capacité — « est-ce que le démon me répond ? ». Les deux modes fonctionnent
+donc sans réglage, et le **rootless est le mode recommandé** : il n'exige aucun
+groupe root-équivalent.
+
+### Hôte en Docker rootless
+
+Quatre points à poser avant `make build`, une fois pour toutes :
+
+```bash
+# plages d'UID/GID déléguées au compte qui fera tourner la plateforme
+grep "$USER" /etc/subuid /etc/subgid      # sinon : usermod --add-subuids … --add-subgids …
+
+# la session utilisateur survit à la déconnexion (sinon les conteneurs meurent avec le SSH)
+sudo loginctl enable-linger "$USER"
+
+# Elasticsearch refuse de démarrer en dessous de 262144 — réglage d'hôte, pas de conteneur
+echo 'vm.max_map_count=1048575' | sudo tee /etc/sysctl.d/99-cti-platform.conf && sudo sysctl --system
+
+# ports 80/443 : un démon rootless ne les lie pas par défaut
+sudo setcap cap_net_bind_service=ep "$(command -v rootlesskit)"
+#   variante plus large : sysctl net.ipv4.ip_unprivileged_port_start=80
+#   variante sans privilège : CORE_HTTP_PORT=8080 / CORE_HTTPS_PORT=8443 + relais en amont
+```
+
+Elasticsearch réclame aussi 65536 descripteurs et la pile pose `memlock: -1` :
+un démon rootless ne peut pas relever ces limites au-delà de celles de
+l'utilisateur, donc `/etc/security/limits.d/` doit les accorder au compte.
+
+`provisioning/diag_rootless.sh` contrôle le résultat sans rien modifier :
+mode du démon, pilote de stockage, capacité de MinIO à écrire (volume nommé
+**et** répertoire lié), et liaison effective des ports privilégiés.
 
 ## 1. Récupération
 
@@ -38,6 +70,7 @@ liens des rapports et la vérification CSRF d'OpenCTI.
 |---|---|
 | `HOST` (make) | FQDN ou IP publique de la plateforme, propagé aux trois `.env` |
 | `BIND_ADDRESS` | `0.0.0.0` (défaut) pour une machine distante, `127.0.0.1` pour un poste isolé |
+| `CTI_HOST_TARGET` (make : `HOST_TARGET`) | adresse que les **conteneurs** visent pour joindre l'hôte par son nom public. `host-gateway` en rootful ; en rootless, l'adresse réelle de l'hôte — `make init` la détecte depuis `HOST`. Une valeur en `127.*` est refusée par un avertissement : un conteneur n'y joint pas l'hôte |
 | `ADMIN_EMAIL` | identité du compte admin MISP |
 | `MISP_ORG` (make) | organisation qui porte la plateforme des deux côtés : org #1 de MISP (`ADMIN_ORG`) **et** valeur lue par les deux ponts (`MISP_IMPORT_CREATOR_ORGS`, `MISP_OWNER_ORG`). Défaut `ruggdoll` ; si les deux divergent, MISP et OpenCTI ne se voient pas |
 | `ADMIN_KEY` | clé API admin MISP, tirée au hasard par `make init` puis **propagée** dans `opencti/.env` (`MISP_KEY`) ; un outil d'alimentation la lit là, ou reçoit une clé d'automation dédiée |

@@ -52,6 +52,22 @@ $(ENV_FILE):
 HOST ?= $(shell hostname -f 2>/dev/null || echo localhost)
 OCTI_ENV := opencti/.env
 
+# Adresse que les CONTENEURS doivent viser pour joindre le nom public de la
+# plateforme (`extra_hosts` des deux compose). Deux mondes, deux valeurs :
+#   - rootful  : `host-gateway` désigne l'hôte depuis un conteneur ;
+#   - ROOTLESS : `host-gateway` résout vers le pont docker0 de l'espace de noms
+#     de RootlessKit, où RIEN n'écoute — les ports publiés le sont dans l'espace
+#     de noms de l'HÔTE. Un conteneur doit alors viser l'adresse réelle de
+#     l'hôte, qu'il atteint par sa sortie réseau normale.
+# Détectée depuis HOST quand le démon est rootless, sinon `host-gateway`.
+# Surchargeable dans tous les cas : make init HOST=… HOST_TARGET=192.168.0.40
+ROOTLESS := $(shell docker info --format '{{range .SecurityOptions}}{{.}}{{end}}' 2>/dev/null | grep -qi rootless && echo 1)
+ifeq ($(ROOTLESS),1)
+HOST_TARGET ?= $(firstword $(shell getent hosts $(HOST) 2>/dev/null | awk '{print $$1; exit}') host-gateway)
+else
+HOST_TARGET ?= host-gateway
+endif
+
 # Mot de passe des COMPTES UTILISATEUR (admin MISP, admin OpenCTI) : ceux qu'on
 # saisit dans les deux interfaces. Surchargeable : make init DEFAULT_PASSWORD='…'.
 # Les secrets des briques d'infrastructure (MariaDB, Redis, MinIO, RabbitMQ) et
@@ -88,6 +104,7 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  done; \
 	  sed -i "s|^BASE_URL=.*|BASE_URL=https://$(HOST)|" "$(ENV_FILE)"; \
 	  sed -i "s|^CTI_HOSTNAME=.*|CTI_HOSTNAME=$(HOST)|" "$(ENV_FILE)"; \
+	  sed -i "s|^CTI_HOST_TARGET=.*|CTI_HOST_TARGET=$(HOST_TARGET)|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_ORG=.*|ADMIN_ORG=$(MISP_ORG)|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_KEY=.*|ADMIN_KEY=$$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40)|" "$(ENV_FILE)"; \
 	  echo "  $(ENV_FILE) généré (BASE_URL=https://$(HOST), org $(MISP_ORG))"; \
@@ -105,11 +122,14 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  done; \
 	  sed -i "s|^OPENCTI_HOST=.*|OPENCTI_HOST=$(HOST)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_REFERENCE_URL=.*|MISP_REFERENCE_URL=https://$(HOST)|" "$(OCTI_ENV)"; \
+	  sed -i "s|^CTI_HOST_TARGET=.*|CTI_HOST_TARGET=$(HOST_TARGET)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_IMPORT_FROM_DATE=.*|MISP_IMPORT_FROM_DATE=$$(date +%F)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_ORG=.*|MISP_ORG=$(MISP_ORG)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_KEY=.*|MISP_KEY=$$(grep -E '^ADMIN_KEY=' "$(ENV_FILE)" | cut -d= -f2)|" "$(OCTI_ENV)"; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(HOST), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
 	fi
+	@echo "  Cible extra_hosts des conteneurs (CTI_HOST_TARGET) : $(HOST_TARGET)$(if $(ROOTLESS), — démon rootless détecté,)"
+	@case "$(HOST_TARGET)" in 127.*) echo "  ATTENTION : CTI_HOST_TARGET est une adresse de loopback. Un conteneur n'y joindra pas l'hôte."; echo "  Corriger /etc/hosts (le nom public doit pointer sur l'IP du LAN) ou passer HOST_TARGET=<ip> explicitement.";; esac
 	@echo "→ MISP    : https://$(HOST)      (admin@… / $(DEFAULT_PASSWORD))"
 	@echo "→ OpenCTI : http://$(HOST):8080  (admin@… / $(DEFAULT_PASSWORD))"
 	@echo "  La clé API admin MISP est propagée dans $(OCTI_ENV) (MISP_KEY). Un outil d'alimentation"
