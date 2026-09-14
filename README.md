@@ -30,6 +30,9 @@ propres outils d'alimentation, par les interfaces standard des deux produits
 ## Démarrage rapide
 
 ```bash
+# Debian minimale : git n'y est pas, et un clone en https exige les certificats
+sudo apt-get install -y git ca-certificates
+
 git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform
 cd CTI-Platform
 

@@ -18,7 +18,13 @@ Sur une Debian 13 vierge, tout ce qui exige root tient dans un script, à lancer
 **une fois** :
 
 ```bash
-sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn> [--ip <adresse>]
+# une Debian minimale n'a pas git, et un clone en https exige les certificats
+sudo apt-get install -y git ca-certificates
+git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform
+cd CTI-Platform
+
+sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn> \
+     [--ip <adresse>] [--ssh-key <fichier|clé publique>]
 ```
 
 Il est idempotent et ne fait rien d'autre que ce qui suit — chaque point
