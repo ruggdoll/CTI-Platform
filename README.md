@@ -96,8 +96,12 @@ rapport créent des souches vides à fusionner plus tard.
 Les deux socles côte à côte, une fois les piles up et l'ATT&CK chargé :
 `make socle-all`.
 
-Sur une instance MISP neuve, **tout est livré désactivé** : 143 warninglists et
-182 taxonomies présentes, aucune active. `make socle-misp` corrige ça.
+Sur une instance MISP neuve, **tout est livré désactivé** : les warninglists et
+les taxonomies sont présentes en base, aucune n'est active. `make socle-misp`
+corrige ça — il active **toutes** les warninglists et les six taxonomies
+utilisées. Leur nombre suit les versions amont de MISP (125 warninglists et
+180 taxonomies livrées au 2026-09-15) : c'est la couverture qui compte, pas le
+compte.
 
 **L'ordre compte.** Au premier démarrage, quatre connecteurs de masse lancés
 ensemble saturent une machine à 4 cœurs et l'ATT&CK arrive au compte-gouttes.
@@ -142,7 +146,8 @@ les deux ponts MISP.
 
 `make up` (`vendor/misp-docker`, sous-module officiel, surcharges dans
 `compose.tuning.yml` et `docker/`) : cœur, modules, MariaDB réglée pour le
-volume (buffer pool 12 G), Redis. Le socle (`make socle`) fournit les
+volume (buffer pool dimensionné par `make init`), Redis. Le socle
+(`make socle-misp`) fournit les
 référentiels qui rendent les tags valides.
 
 ### Le pont entre les deux
