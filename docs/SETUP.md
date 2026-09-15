@@ -176,6 +176,17 @@ La plateforme n'analyse rien et ne moissonne rien. Elle expose les interfaces
 standard des deux produits ; c'est à un outillage d'alimentation, tenu à part,
 de les utiliser.
 
+C'est la plateforme qui émet son propre adressage :
+
+```bash
+make adressage                            # aperçu, secrets masqués
+make adressage ARGS=--secrets > …/.env    # fragment prêt à l'emploi
+```
+
+Elle avertit si elle est déclarée sur `localhost` — auquel cas rien de ce
+qu'elle émet ne servira à un outil situé ailleurs — et règle `MISP_VERIFY_SSL`
+en lisant le certificat réellement en place plutôt qu'en le supposant.
+
 | Vers | Interface | Adressage |
 |---|---|---|
 | OpenCTI | bundle STIX 2.1 : connecteur `import-file-stix` (dossier surveillé) ou `stix2.import_bundle_from_file` (pycti). Un `Report` par publication, étiqueté `export-misp` pour être repris par le pont retour et par la collection TAXII | `opencti/.env` : `OPENCTI_EXTERNAL_SCHEME`, `OPENCTI_HOST`, `OPENCTI_PORT`, `OPENCTI_ADMIN_TOKEN` |

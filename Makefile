@@ -227,6 +227,10 @@ misp-setup: ## ROTATION : régénère la clé API admin, la repose dans les .env
 	./.venv/bin/python provisioning/misp_org.py
 	@echo "→ ensuite : make opencti-up puis make bridge-setup"
 
+.PHONY: adressage
+adressage: ## ÉMET l'adressage qu'un outil d'alimentation doit connaître (ARGS=--secrets pour le fragment .env réel)
+	@$(PY) provisioning/adressage.py $(ARGS)
+
 .PHONY: venv
 venv: ## Crée l'environnement Python (.venv) des outils de la plateforme
 	$(PY) -m venv .venv

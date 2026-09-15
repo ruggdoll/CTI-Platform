@@ -121,10 +121,16 @@ types propres à OpenCTI (`media-content`, `channel`, `narrative`) — du STIX
 La plateforme ne moissonne rien et n'analyse rien. Ce qu'un outil
 d'alimentation doit savoir :
 
+L'adressage, c'est la plateforme qui l'émet — `make adressage` en donne
+l'aperçu, `make adressage ARGS=--secrets` le fragment `.env` à rediriger dans
+l'outil. Aller lire `opencti/.env` à la main ne vaut que si l'outil tourne sur
+la même machine ; dès que la plateforme est ailleurs, c'est cette commande qui
+fait foi.
+
 | Vers | Interface | Où trouver l'adressage |
 |---|---|---|
-| OpenCTI | bundle STIX 2.1 par le connecteur `import-file-stix` ou `stix2.import_bundle_from_file` (pycti) ; un `Report` par publication, étiqueté **`export-misp`** pour être repris par le pont retour et par la collection TAXII | `opencti/.env` : `OPENCTI_HOST`, `OPENCTI_PORT`, `OPENCTI_ADMIN_TOKEN` |
-| MISP | feed MISP natif enregistré par l'API, ou event créé par l'API (PyMISP) avec une **clé d'automation dédiée** | `vendor/misp-docker/.env` : `BASE_URL` ; `opencti/.env` : `MISP_KEY` (clé admin propagée par `make init`) |
+| OpenCTI | bundle STIX 2.1 par le connecteur `import-file-stix` ou `stix2.import_bundle_from_file` (pycti) ; un `Report` par publication, étiqueté **`export-misp`** pour être repris par le pont retour et par la collection TAXII | `make adressage` → `OPENCTI_URL`, `OPENCTI_TOKEN` |
+| MISP | feed MISP natif enregistré par l'API, ou event créé par l'API (PyMISP) avec une **clé d'automation dédiée** | `make adressage` → `MISP_URL`, `MISP_KEY`, `MISP_ORG`, `MISP_VERIFY_SSL` |
 
 Deux règles que la plateforme impose par construction : les events créés par
 le pont retour sortent en distribution 1 et y restent (c'est le signal
