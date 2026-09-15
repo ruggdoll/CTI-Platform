@@ -62,13 +62,28 @@ def cert_au_nom_de_l_hote() -> tuple[bool, str]:
     return True, f"certificat propre à l'hôte ({sujet.removeprefix('subject=').strip()})"
 
 
-def main() -> None:
-    args = sys.argv[1:]
-    secrets = "--secrets" in args
-
+def lignes_env(secrets: bool, misp_key: str | None = None) -> list[str]:
+    """Le fragment .env, une ligne par élément. Partagé avec cle-automation,
+    qui émet le même bloc en y substituant la clé qu'il vient de créer."""
     verifiable, motif = cert_au_nom_de_l_hote()
-    tls = "1" if verifiable else "0"
+    cle = misp_key if misp_key is not None else MISP_KEY
+    return [
+        f"MISP_URL={MISP_URL}",
+        f"MISP_KEY={cle if secrets else masque(cle)}",
+        # Le commentaire va sur SA ligne : les lecteurs de .env des outils font un
+        # simple partition("="), et un commentaire de fin de ligne serait pris pour
+        # une partie de la valeur — MISP_VERIFY_SSL deviendrait non vide, donc vrai,
+        # et toute la liaison MISP échouerait sur le certificat auto-signé.
+        f"# {motif}",
+        f"MISP_VERIFY_SSL={'1' if verifiable else '0'}",
+        f"MISP_ORG={MISP_ORG}",
+        "",
+        f"OPENCTI_URL={OPENCTI_URL}",
+        f"OPENCTI_TOKEN={OPENCTI_TOKEN if secrets else masque(OPENCTI_TOKEN)}",
+    ]
 
+
+def avertit_localhost() -> None:
     if "localhost" in OPENCTI_URL or "localhost" in MISP_URL:
         print("/!\\ Cette plateforme est déclarée sur « localhost » : l'adressage émis ne",
               file=sys.stderr)
@@ -78,23 +93,20 @@ def main() -> None:
               file=sys.stderr)
         print(file=sys.stderr)
 
+
+def main() -> None:
+    args = sys.argv[1:]
+    secrets = "--secrets" in args
+
+    avertit_localhost()
+
     if not secrets:
         print("# Aperçu — secrets masqués. Pour le fragment réel, redirigeable :")
         print("#     make adressage ARGS=--secrets > /chemin/vers/outil/.env")
         print()
 
-    print(f"MISP_URL={MISP_URL}")
-    print(f"MISP_KEY={MISP_KEY if secrets else masque(MISP_KEY)}")
-    # Le commentaire va sur SA ligne : les lecteurs de .env des outils font un
-    # simple partition("=") et prendraient un commentaire de fin de ligne pour
-    # une partie de la valeur — ici, MISP_VERIFY_SSL deviendrait non vide, donc
-    # vrai, et toute la liaison MISP échouerait sur le certificat auto-signé.
-    print(f"# {motif}")
-    print(f"MISP_VERIFY_SSL={tls}")
-    print(f"MISP_ORG={MISP_ORG}")
-    print()
-    print(f"OPENCTI_URL={OPENCTI_URL}")
-    print(f"OPENCTI_TOKEN={OPENCTI_TOKEN if secrets else masque(OPENCTI_TOKEN)}")
+    for ligne in lignes_env(secrets):
+        print(ligne)
 
     if secrets:
         print("Ces valeurs ouvrent un accès complet aux deux plateformes.",

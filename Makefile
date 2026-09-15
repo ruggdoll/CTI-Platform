@@ -231,6 +231,10 @@ misp-setup: ## ROTATION : régénère la clé API admin, la repose dans les .env
 adressage: ## ÉMET l'adressage qu'un outil d'alimentation doit connaître (ARGS=--secrets pour le fragment .env réel)
 	@$(PY) provisioning/adressage.py $(ARGS)
 
+.PHONY: cle-automation
+cle-automation: ## CRÉE une clé d'automation MISP dédiée, qui survit à misp-setup (ARGS=--lister | --env | --commentaire '…')
+	@$(PY) provisioning/misp_cle_automation.py $(ARGS)
+
 .PHONY: venv
 venv: ## Crée l'environnement Python (.venv) des outils de la plateforme
 	$(PY) -m venv .venv
