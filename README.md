@@ -85,6 +85,68 @@ par défaut : `admin@cti-lab.local` / `MyP@ssword42!` des deux côtés
 d'infrastructure et les clés cryptographiques sont tirés au hasard. Détail
 dans [`docs/SETUP.md`](docs/SETUP.md) ; `make help` liste les cibles.
 
+## Deux identités derrière une façade HTTPS
+
+`make build DOMAINE=<domaine>` met un proxy inverse devant les deux piles et
+leur donne un nom chacune, au lieu d'une seule façade où OpenCTI vivait sur un
+port :
+
+| | |
+|---|---|
+| `https://misp.<domaine>` | l'interface MISP |
+| `https://opencti.<domaine>` | l'interface OpenCTI |
+
+Les deux piles n'écoutent alors que sur `127.0.0.1` ; la façade tient 80 et 443
+et les joint par le réseau Docker. Elle n'existe **que pour l'extérieur** : les
+connecteurs, les workers et le pont MISP passent par les noms de conteneurs et
+ne la traversent jamais.
+
+Le TLS est assuré par une **autorité locale** que Caddy tient et renouvelle
+seul — aucune régénération périodique à prévoir, contrairement à des
+certificats fabriqués à la main.
+
+### Ce que chaque poste client doit faire — une fois
+
+**1. Résoudre les deux noms.** Ils n'ont pas à exister dans un DNS public ; une
+entrée dans le fichier `hosts` suffit :
+
+```bash
+echo '<ip de la plateforme>   misp.<domaine> opencti.<domaine>' | sudo tee -a /etc/hosts
+```
+
+**2. Faire confiance à l'autorité locale**, sans quoi le navigateur signale une
+autorité inconnue. Sur la plateforme :
+
+```bash
+make proxy-ca          # écrit dist/ac-locale.crt
+```
+
+Puis sur le poste client, après avoir récupéré ce fichier :
+
+```bash
+sudo cp ac-locale.crt /usr/local/share/ca-certificates/cti-platform.crt
+sudo update-ca-certificates
+```
+
+**Firefox ne suit pas le magasin du système** : Paramètres → Vie privée et
+sécurité → Certificats → Afficher les certificats → onglet **Autorités** →
+Importer, puis cocher « Confirmer cette AC pour identifier des sites web ».
+Chrome et Chromium utilisent le magasin système, eux.
+
+La racine vaut dix ans : c'est un geste unique par poste. Une fois posée, les
+outils d'alimentation peuvent repasser `MISP_VERIFY_SSL=1` — la vérification
+TLS redevient possible, alors qu'elle était désactivée à cause du certificat
+auto-signé `CN=localhost` livré par la pile MISP.
+
+### Un domaine public plutôt qu'une autorité locale
+
+Avec un domaine enregistré dont les noms n'ont pas à exister sur Internet,
+Let's Encrypt reste utilisable : **HTTP-01 est impossible** — il faut que le
+nom soit joignable publiquement sur le port 80 — mais **DNS-01 fonctionne**, il
+ne demande qu'un enregistrement TXT dans la zone. Voir
+[`docs/SETUP.md`](docs/SETUP.md) : l'architecture est identique, seule la
+fabrique des certificats change.
+
 ## Le socle — à poser avant tout flux
 
 Les deux plateformes ont besoin de leurs **référentiels** avant de recevoir la
