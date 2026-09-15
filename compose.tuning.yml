@@ -21,8 +21,16 @@ services:
       - "PHP_MEMORY_LIMIT=3072M"
     # Publication des ports sur l'interface choisie : 0.0.0.0 (défaut) rend MISP
     # joignable par FQDN ou IP depuis une autre machine, 127.0.0.1 le restreint
-    # au poste local. Redéfinit la liste amont, qui écoute sur toutes les interfaces.
-    ports:
+    # au poste local — le cas du mode proxy inverse.
+    #
+    # `!override` est INDISPENSABLE : compose CONCATÈNE les listes `ports` entre
+    # fichiers au lieu de les remplacer. L'amont publie déjà CORE_HTTP_PORT et
+    # CORE_HTTPS_PORT, sans adresse de liaison. Sans ce marqueur, chaque port
+    # est publié DEUX fois — ce qui passait inaperçu tant que BIND_ADDRESS
+    # valait 0.0.0.0 (entrées identiques, fusionnées) et échouait dès qu'elles
+    # divergeaient : « failed to bind host port 127.0.0.1:8081: address already
+    # in use ».
+    ports: !override
       - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTP_PORT:-80}:80"
       - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTPS_PORT:-443}:443"
     # Le healthcheck amont fait `curl ${BASE_URL}/users/heartbeat` DEPUIS le
