@@ -42,6 +42,10 @@ _MISP = _read_env(ROOT / "vendor" / "misp-docker" / ".env")
 def _opencti_url() -> str:
     if os.environ.get("OPENCTI_URL"):
         return os.environ["OPENCTI_URL"].rstrip("/")
+    # Derrière un proxy inverse, l'URL publique n'a plus le port interne :
+    # OPENCTI_BASE_URL la porte telle quelle et l'emporte sur la reconstruction.
+    if _OCTI.get("OPENCTI_BASE_URL"):
+        return _OCTI["OPENCTI_BASE_URL"].rstrip("/")
     scheme = _OCTI.get("OPENCTI_EXTERNAL_SCHEME", "http")
     host = _OCTI.get("OPENCTI_HOST", "localhost")
     port = _OCTI.get("OPENCTI_PORT", "8080")

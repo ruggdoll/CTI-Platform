@@ -254,6 +254,58 @@ session, donc le démon, qui relance tout ce qui est en `restart: always`.
 `make autostart-off` retire l'unité. `make stop-all` s'utilise aussi à la main
 avant une intervention.
 
+## 5 ter. Deux identités derrière un proxy inverse
+
+Par défaut, chaque pile publie ses propres ports : MISP en 443, OpenCTI en
+8080, sous un seul nom. `make build DOMAINE=<domaine>` met à la place une
+**façade HTTPS** devant les deux, sous deux identités :
+
+```bash
+sudo provisioning/prepare_host.sh --user cti-platform --domaine here.local
+make build DOMAINE=here.local
+make proxy-ca        # exporte la racine à installer sur les postes clients
+```
+
+| | |
+|---|---|
+| `https://misp.here.local` | la pile MISP |
+| `https://opencti.here.local` | la plateforme OpenCTI |
+
+Les deux piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI
+en 8080) ; la façade tient 80 et 443 et les joint par le réseau Docker. Elle est
+un service de la pile OpenCTI sous le profil `proxy`, activé automatiquement dès
+que `MISP_HOSTNAME` est renseigné : toute cible `opencti-*` l'embarque, même
+lancée seule des mois plus tard.
+
+**La façade n'existe que pour l'extérieur.** Les échanges internes — les six
+connecteurs et les workers vers `http://opencti:8080`, OpenCTI vers
+Elasticsearch, le pont `connector-misp` vers le conteneur MISP — passent par les
+noms de conteneurs et ne la traversent jamais. Les sondes du build visent la
+boucle locale pour la même raison : une construction ne doit dépendre ni du DNS
+ni d'un proxy.
+
+### Les certificats
+
+`tls internal` : Caddy tient sa propre autorité, émet les certificats des deux
+noms et **les renouvelle seul**. Aucune régénération périodique — ce que
+demanderait un `openssl` maison. Le seul geste est d'importer la racine une
+fois par poste client (`make proxy-ca`), après quoi `MISP_VERIFY_SSL` peut
+passer à `1`.
+
+L'autorité vit dans le volume `proxy_ac_locale` : le détruire oblige tous les
+clients à refaire confiance à une nouvelle racine.
+
+### Passer à un domaine public
+
+Avec un domaine enregistré dont les noms n'existent pas sur Internet — le cas
+courant d'un laboratoire — **HTTP-01 est impossible** : Let's Encrypt doit
+joindre le nom sur le port 80 public. **DNS-01 fonctionne** : il ne demande
+qu'un TXT dans la zone, aucune exposition entrante, et permet un certificat
+joker qui couvre les deux noms. Remplacer `tls internal` par
+`tls { dns <registrar> <jeton> }` dans `proxy/Caddyfile`, relancer
+`make init DOMAINE=<domaine public>` sur une installation neuve. Rien d'autre
+ne bouge : l'architecture est la même, seule la fabrique des certificats change.
+
 ## 6. Mise à jour de MISP
 
 ```bash

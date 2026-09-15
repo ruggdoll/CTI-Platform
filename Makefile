@@ -32,8 +32,13 @@ OCTI_PROJECT  := cti-platform-opencti
 COMPOSE := CTI_PLATFORM_ROOT=$(CURDIR) docker compose -p $(MISP_PROJECT) --env-file $(ENV_FILE) \
 	-f $(DOCKER_DIR)/docker-compose.yml -f compose.tuning.yml
 
+# Le profil `proxy` s'active depuis le .env et non depuis la ligne de commande :
+# une fois la façade configurée, TOUTE cible OpenCTI l'embarque — y compris
+# lancée seule des mois plus tard, sans avoir à se souvenir d'un argument.
+PROFIL_PROXY := $(shell grep -qsE '^MISP_HOSTNAME=.+' $(CURDIR)/opencti/.env && echo '--profile proxy')
+
 OCTI := docker compose -p $(OCTI_PROJECT) --project-directory $(CURDIR)/opencti \
-	--env-file $(CURDIR)/opencti/.env -f $(CURDIR)/opencti/docker-compose.yml
+	--env-file $(CURDIR)/opencti/.env $(PROFIL_PROXY) -f $(CURDIR)/opencti/docker-compose.yml
 
 .DEFAULT_GOAL := help
 
@@ -49,6 +54,27 @@ $(ENV_FILE):
 # valeur à fixer à la création de l'infra : elle aligne MISP (BASE_URL), OpenCTI
 # (APP__BASE_URL) et l'URL publique affichée dans les rapports. Par défaut, le
 # FQDN de la machine, sinon localhost.
+# DEUX MODES DE PUBLICATION.
+#
+#   make build HOST=<fqdn|ip>     une seule façade : chaque pile publie ses
+#                                 propres ports (MISP en 443, OpenCTI en 8080).
+#   make build DOMAINE=<domaine>  un PROXY INVERSE devant les deux, sous deux
+#                                 identités : misp.<domaine> et opencti.<domaine>.
+#                                 Les piles n'écoutent plus que sur la boucle
+#                                 locale ; le proxy tient 80 et 443, termine le
+#                                 TLS avec sa propre autorité (`tls internal`)
+#                                 et les joint par le réseau Docker.
+#
+# Le proxy n'existe que pour l'EXTÉRIEUR. Les échanges internes — connecteurs
+# vers OpenCTI, OpenCTI vers Elasticsearch, pont MISP — passent par les noms de
+# conteneurs et ne le traversent pas.
+DOMAINE ?=
+ifneq ($(DOMAINE),)
+MISP_HOSTNAME    ?= misp.$(DOMAINE)
+OPENCTI_HOSTNAME ?= opencti.$(DOMAINE)
+HOST             := $(MISP_HOSTNAME)
+endif
+
 HOST ?= $(shell hostname -f 2>/dev/null || echo localhost)
 OCTI_ENV := opencti/.env
 
@@ -138,6 +164,11 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  sed -i "s|^INNODB_BUFFER_POOL_SIZE=.*|INNODB_BUFFER_POOL_SIZE=$(INNODB_POOL)   # dimensionné par make init sur $(MEM_MO) Mo de RAM|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_ORG=.*|ADMIN_ORG=$(MISP_ORG)|" "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_KEY=.*|ADMIN_KEY=$$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 40)|" "$(ENV_FILE)"; \
+	  if [ -n "$(DOMAINE)" ]; then \
+	    sed -i "s|^BIND_ADDRESS=.*|BIND_ADDRESS=127.0.0.1|" "$(ENV_FILE)"; \
+	    sed -i "s|^CORE_HTTP_PORT=.*|CORE_HTTP_PORT=8081|" "$(ENV_FILE)"; \
+	    sed -i "s|^CORE_HTTPS_PORT=.*|CORE_HTTPS_PORT=8444|" "$(ENV_FILE)"; \
+	  fi; \
 	  echo "  $(ENV_FILE) généré (BASE_URL=https://$(HOST), org $(MISP_ORG))"; \
 	fi
 	@if [ -f "$(OCTI_ENV)" ]; then echo "  $(OCTI_ENV) existe déjà — inchangé."; else \
@@ -158,7 +189,20 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  sed -i "s|^MISP_IMPORT_FROM_DATE=.*|MISP_IMPORT_FROM_DATE=$$(date +%F)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_ORG=.*|MISP_ORG=$(MISP_ORG)|" "$(OCTI_ENV)"; \
 	  sed -i "s|^MISP_KEY=.*|MISP_KEY=$$(grep -E '^ADMIN_KEY=' "$(ENV_FILE)" | cut -d= -f2)|" "$(OCTI_ENV)"; \
+	  if [ -n "$(DOMAINE)" ]; then \
+	    sed -i "s|^BIND_ADDRESS=.*|BIND_ADDRESS=127.0.0.1|" "$(OCTI_ENV)"; \
+	    sed -i "s|^OPENCTI_HOST=.*|OPENCTI_HOST=$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
+	    sed -i "s|^OPENCTI_EXTERNAL_SCHEME=.*|OPENCTI_EXTERNAL_SCHEME=https|" "$(OCTI_ENV)"; \
+	    sed -i "s|^OPENCTI_BASE_URL=.*|OPENCTI_BASE_URL=https://$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
+	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n' \
+	      "$(DOMAINE)" "MISP_HOSTNAME=$(MISP_HOSTNAME)" "OPENCTI_HOSTNAME=$(OPENCTI_HOSTNAME)" \
+	      "PROXY_BIND=0.0.0.0" "PROXY_HTTP_PORT=80" "PROXY_HTTPS_PORT=443" >> "$(OCTI_ENV)"; \
+	  fi; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(HOST), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
+	fi
+	@if [ -n "$(DOMAINE)" ]; then \
+	  echo "  Proxy inverse : https://$(MISP_HOSTNAME) et https://$(OPENCTI_HOSTNAME)"; \
+	  echo "  Les piles n'écoutent que sur 127.0.0.1 ; la façade tient 80 et 443."; \
 	fi
 	@echo "  Mémoire ($(MEM_MO) Mo) : buffer pool MariaDB $(INNODB_POOL), heap Elasticsearch $(ELASTIC_MEM)"
 	@echo "  Cible extra_hosts des conteneurs (CTI_HOST_TARGET) : $(HOST_TARGET)$(if $(ROOTLESS), — démon rootless détecté,)"
@@ -226,6 +270,18 @@ misp-setup: ## ROTATION : régénère la clé API admin, la repose dans les .env
 	  echo "  MISP_KEY posée dans $(OCTI_ENV) — à reporter dans la configuration des outils d'alimentation"
 	./.venv/bin/python provisioning/misp_org.py
 	@echo "→ ensuite : make opencti-up puis make bridge-setup"
+
+.PHONY: proxy-ca
+proxy-ca: ## EXPORTE la racine de l'autorité locale, à installer une fois sur chaque client
+	@mkdir -p dist
+	@$(RUN) '$(OCTI) cp proxy:/data/caddy/pki/authorities/local/root.crt ./dist/ac-locale.crt'
+	@echo "  racine exportée : dist/ac-locale.crt"
+	@echo "  Debian/Ubuntu : sudo cp dist/ac-locale.crt /usr/local/share/ca-certificates/cti-platform.crt && sudo update-ca-certificates"
+	@echo "  Firefox tient son propre magasin : Paramètres > Vie privée > Certificats > Autorités > Importer."
+
+.PHONY: proxy-logs
+proxy-logs: ## Suit les journaux de la façade HTTPS
+	$(RUN) '$(OCTI) logs -f proxy'
 
 .PHONY: adressage
 adressage: ## ÉMET l'adressage qu'un outil d'alimentation doit connaître (ARGS=--secrets pour le fragment .env réel)

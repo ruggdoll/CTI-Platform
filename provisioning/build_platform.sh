@@ -31,15 +31,27 @@ HOST_ARG="${HOST:-}"
 PY=./.venv/bin/python
 
 etape "1/9  Fichiers d'environnement"
-if [ -n "$HOST_ARG" ]; then make --no-print-directory init HOST="$HOST_ARG"; else make --no-print-directory init; fi
-HOST_REEL=$(grep -E '^OPENCTI_HOST=' opencti/.env | cut -d= -f2)
+if [ -n "${DOMAINE:-}" ]; then make --no-print-directory init DOMAINE="$DOMAINE"
+elif [ -n "$HOST_ARG" ]; then make --no-print-directory init HOST="$HOST_ARG"
+else make --no-print-directory init; fi
+
+# Les sondes du build visent la BOUCLE LOCALE et les ports publiés, jamais les
+# noms publics : la construction ne doit dépendre ni du DNS, ni d'un proxy qui
+# n'est démarré qu'en fin de parcours. Les URL publiques ne servent qu'à
+# l'affichage final.
+lire() { grep -E "^$2=" "$1" | cut -d= -f2- | head -1; }
+SONDE_MISP="https://127.0.0.1:$(lire vendor/misp-docker/.env CORE_HTTPS_PORT)"
+SONDE_OCTI="http://127.0.0.1:$(lire opencti/.env OPENCTI_PORT)"
+URL_MISP=$(lire vendor/misp-docker/.env BASE_URL)
+URL_OCTI=$(lire opencti/.env OPENCTI_BASE_URL)
+[ -n "$URL_OCTI" ] || URL_OCTI="$(lire opencti/.env OPENCTI_EXTERNAL_SCHEME)://$(lire opencti/.env OPENCTI_HOST):$(lire opencti/.env OPENCTI_PORT)"
 
 etape "2/9  Pile MISP"
 make --no-print-directory up
 KEY=$(grep -E '^MISP_KEY=' opencti/.env | cut -d= -f2)
 attendre "API MISP" 900 bash -c \
   "curl -sk -H 'Authorization: $KEY' -H 'Accept: application/json' \
-   https://$HOST_REEL/organisations/view/1 | grep -q '\"Organisation\"'"
+   $SONDE_MISP/organisations/view/1 | grep -q '\"Organisation\"'"
 
 etape "3/9  Environnement Python"
 [ -x "$PY" ] || make --no-print-directory venv
@@ -50,9 +62,13 @@ make --no-print-directory socle-misp
 etape "5/9  Pile OpenCTI + socle ATT&CK"
 make --no-print-directory opencti-up
 attendre "API OpenCTI" 1800 bash -c \
-  "curl -s -o /dev/null -w '%{http_code}' http://$HOST_REEL:8080/graphql | grep -qE '200|400|405'"
+  "curl -sk -o /dev/null -w '%{http_code}' $SONDE_OCTI/graphql | grep -qE '200|400|405'"
 echo "  chargement de l'ATT&CK (sans concurrence) — cela prend plusieurs minutes"
 $PY provisioning/attack_status.py --wait
+
+if grep -qsE '^MISP_HOSTNAME=.+' opencti/.env; then
+  echo "  façade HTTPS incluse (profil proxy) — $URL_MISP et $URL_OCTI"
+fi
 
 etape "6/9  Pont OpenCTI -> MISP"
 make --no-print-directory bridge-setup
@@ -75,6 +91,6 @@ else
 fi
 
 printf '\n\033[1m== Plateforme construite\033[0m\n'
-echo "  MISP    : https://$HOST_REEL"
-echo "  OpenCTI : http://$HOST_REEL:8080"
+echo "  MISP    : $URL_MISP"
+echo "  OpenCTI : $URL_OCTI"
 echo "  Contrôle de bout en bout : make bridge-test"

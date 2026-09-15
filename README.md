@@ -38,9 +38,13 @@ cd CTI-Platform
 
 # Hôte neuf (Debian 13, Docker rootless) : tout ce qui exige root, une fois.
 sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn|ip>
+#   ... ou, pour deux identités derrière une façade HTTPS :
+#   sudo provisioning/prepare_host.sh --user cti-platform --domaine <domaine>
 
 # Puis, connecté en tant que ce compte :
 make build HOST=<fqdn|ip>      # construit TOUTE la plateforme, dans le bon ordre
+#   ... ou : make build DOMAINE=<domaine>  -> misp.<domaine> et opencti.<domaine>
+#           derrière un proxy inverse, TLS par autorité locale (make proxy-ca)
 make bridge-test               # contrôle de bout en bout
 ```
 

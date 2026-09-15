@@ -6,6 +6,9 @@
 #   sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn> \
 #        [--ip <adresse>] [--ssh-key <fichier|clé publique>]
 #
+# Derrière un proxy inverse (deux identités), remplacer --host par :
+#   --domaine here.local        -> enregistre misp.here.local ET opencti.here.local
+#
 # Puis, en tant que l'utilisateur créé :
 #   git clone --recurse-submodules <dépôt> ~/CTI-Platform && cd ~/CTI-Platform
 #   make build HOST=<fqdn>
@@ -28,11 +31,12 @@ info() { printf '  ·      %s\n' "$1"; }
 etape(){ printf '\n\033[1m== %s\033[0m\n' "$*"; }
 mourir(){ ko "$1"; exit 1; }
 
-UTILISATEUR=""; NOM_PUBLIC=""; ADRESSE=""; CLE_SSH=""
+UTILISATEUR=""; NOM_PUBLIC=""; ADRESSE=""; CLE_SSH=""; DOMAINE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) UTILISATEUR="${2:-}"; shift 2 ;;
     --host) NOM_PUBLIC="${2:-}"; shift 2 ;;
+    --domaine) DOMAINE="${2:-}"; shift 2 ;;
     --ip)   ADRESSE="${2:-}";    shift 2 ;;
     --ssh-key) CLE_SSH="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
@@ -42,7 +46,15 @@ done
 
 [ "$(id -u)" -eq 0 ] || mourir "à lancer en root (sudo)"
 [ -n "$UTILISATEUR" ] || mourir "--user <compte> est obligatoire (le compte qui fera tourner la plateforme)"
-[ -n "$NOM_PUBLIC" ]  || mourir "--host <fqdn|ip> est obligatoire (le nom par lequel les CLIENTS joindront la plateforme)"
+# --domaine dérive les deux identités du mode proxy inverse ; --host reste la
+# forme à une seule façade. Les deux noms doivent résoudre de la même façon.
+if [ -n "$DOMAINE" ]; then
+  NOMS="misp.$DOMAINE opencti.$DOMAINE"
+  NOM_PUBLIC="misp.$DOMAINE"
+else
+  NOMS="$NOM_PUBLIC"
+fi
+[ -n "$NOM_PUBLIC" ] || mourir "--host <fqdn|ip> ou --domaine <domaine> est obligatoire (par quoi les CLIENTS joindront la plateforme)"
 
 etape "0  Hôte"
 . /etc/os-release
@@ -71,29 +83,30 @@ if [ -z "$ADRESSE" ]; then
 fi
 [ -n "$ADRESSE" ] || mourir "aucune adresse globale trouvée — préciser --ip <adresse>"
 case "$ADRESSE" in 127.*|::1) mourir "--ip $ADRESSE est du loopback : les conteneurs n'y joindront jamais l'hôte" ;; esac
-if [ "$NOM_PUBLIC" != "$ADRESSE" ]; then
+for NOM in $NOMS; do
+if [ "$NOM" != "$ADRESSE" ]; then
   # l'installateur Debian écrit « 127.0.1.1 <fqdn> <court> » : à remplacer, pas à doubler
   # Comparaison champ par champ : dans un FQDN, `.` est un joker pour grep et
   # un motif naïf produit des faux positifs.
-  if awk '$1=="127.0.1.1"{for(i=2;i<=NF;i++) if($i==NOM) trouve=1} END{exit !trouve}' NOM="$NOM_PUBLIC" /etc/hosts; then
+  if awk '$1=="127.0.1.1"{for(i=2;i<=NF;i++) if($i==N) trouve=1} END{exit !trouve}' N="$NOM" /etc/hosts; then
     cp -n /etc/hosts /etc/hosts.avant-cti-platform
     sed -i "/^127\.0\.1\.1[[:space:]]/d" /etc/hosts
     info "ligne 127.0.1.1 retirée (sauvegarde : /etc/hosts.avant-cti-platform)"
   fi
-  if awk '$1==IP{for(i=2;i<=NF;i++) if($i==NOM) trouve=1} END{exit !trouve}' IP="$ADRESSE" NOM="$NOM_PUBLIC" /etc/hosts; then
-    ok "/etc/hosts : $NOM_PUBLIC -> $ADRESSE déjà présent"
+  if awk '$1==IP{for(i=2;i<=NF;i++) if($i==N) trouve=1} END{exit !trouve}' IP="$ADRESSE" N="$NOM" /etc/hosts; then
+    ok "/etc/hosts : $NOM -> $ADRESSE déjà présent"
   else
-    printf '%s\t%s\t%s\n' "$ADRESSE" "$NOM_PUBLIC" "${NOM_PUBLIC%%.*}" >> /etc/hosts
-    ok "/etc/hosts : $NOM_PUBLIC -> $ADRESSE ajouté"
+    printf '%s\t%s\t%s\n' "$ADRESSE" "$NOM" "${NOM%%.*}" >> /etc/hosts
+    ok "/etc/hosts : $NOM -> $ADRESSE ajouté"
   fi
 fi
-RESOLU=$(getent hosts "$NOM_PUBLIC" | awk '{print $1; exit}' || true)
+RESOLU=$(getent hosts "$NOM" | awk '{print $1; exit}' || true)
 case "$RESOLU" in
-  "")     mourir "$NOM_PUBLIC ne se résout pas" ;;
-  127.*)  mourir "$NOM_PUBLIC résout sur $RESOLU (loopback) — corriger /etc/hosts ou le DNS" ;;
-  *)      ok "$NOM_PUBLIC résout sur $RESOLU" ;;
+  "")     mourir "$NOM ne se résout pas" ;;
+  127.*)  mourir "$NOM résout sur $RESOLU (loopback) — corriger /etc/hosts ou le DNS" ;;
+  *)      ok "$NOM résout sur $RESOLU" ;;
 esac
-
+done
 etape "2  Paquets"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -226,6 +239,6 @@ echo "  $UTILISATEUR@ » ; JAMAIS sudo -u, qui ne donne ni XDG_RUNTIME_DIR ni bu
 echo "  systemd et laisse le client Docker muet. Puis :"
 echo
 echo "    git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform ~/CTI-Platform"
-echo "    cd ~/CTI-Platform && make build HOST=$NOM_PUBLIC"
+echo "    cd ~/CTI-Platform && make build ${DOMAINE:+DOMAINE=$DOMAINE}${DOMAINE:-HOST=$NOM_PUBLIC}"
 echo
 echo "  make init détectera le démon rootless et visera $RESOLU pour extra_hosts."
