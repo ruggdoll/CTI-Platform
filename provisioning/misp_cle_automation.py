@@ -12,25 +12,38 @@ bien que `make adressage` émet la clé admin faute de mieux. Or `make misp-setu
 la régénère : tout outil d'alimentation qui s'en sert tombe alors en 403, sans
 que la cause soit lisible de son côté.
 
-Une clé créée ici survit à cette rotation. MISP ne montre sa valeur qu'UNE
-SEULE FOIS, à la création : elle n'est pas récupérable ensuite, seulement
-révocable et remplaçable.
+LA CLÉ DOIT APPARTENIR À UN AUTRE UTILISATEUR. `make misp-setup` appelle
+`cake user change_authkey`, qui invalide TOUTES les clés de l'utilisateur visé,
+pas seulement la précédente. Une clé d'automation créée sur le compte admin
+tombe donc avec lui — mesuré le 2026-09-15 : HTTP 403 après rotation. Cet outil
+crée donc un utilisateur dédié (rôle « User » : API autorisée, création
+d'events permise, ni administration ni synchronisation) et mine la clé pour
+LUI. Une rotation de la clé admin ne le touche pas.
+
+MISP ne montre la valeur d'une clé qu'UNE SEULE FOIS, à la création : elle
+n'est pas récupérable ensuite, seulement révocable et remplaçable.
 """
 from __future__ import annotations
 
 import json
 import pathlib
+import secrets as secrets_mod
 import ssl
+import string
 import sys
 import urllib.error
 import urllib.request
 from datetime import date, datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from _config import MISP_KEY, MISP_URL, MISP_VERIFY_SSL  # noqa: E402
+from _config import ADMIN_EMAIL, MISP_KEY, MISP_URL, MISP_VERIFY_SSL  # noqa: E402
 from adressage import avertit_localhost, lignes_env  # noqa: E402
 
 VERT, ROUGE, FIN = "\033[32m", "\033[31m", "\033[0m"
+
+# Rôle « User » : perm_auth (API) et perm_add (créer des events), sans
+# administration ni synchronisation. Le moins-disant qui permette d'alimenter.
+ROLE_UTILISATEUR = "3"
 
 
 def _appel(chemin: str, corps: dict | None = None) -> dict:
@@ -77,11 +90,45 @@ def lister() -> None:
               f"{a.get('comment','') or '(sans commentaire)'}")
 
 
-def cree(commentaire: str, expiration: str) -> str:
-    moi = _appel("/users/view/me")
-    uid = (moi.get("User") or {}).get("id")
+def _mot_de_passe() -> str:
+    """MISP exige une complexité. Ce compte ne sert que par API : le mot de
+    passe n'est ni affiché ni conservé — s'il fallait une session web un jour,
+    l'admin le réinitialise."""
+    alpha = string.ascii_lowercase + string.ascii_uppercase + string.digits
+    return ("".join(secrets_mod.choice(alpha) for _ in range(20))
+            + "aA1!" + secrets_mod.choice("#$%&*+-="))
+
+
+def utilisateur_dedie(email: str, role_id: str) -> str:
+    """Renvoie l'id du compte dédié, en le créant s'il n'existe pas.
+
+    Idempotent : relancer la commande réutilise le compte et n'y ajoute qu'une
+    clé de plus. C'est voulu — on peut vouloir une clé par consommateur.
+    """
+    for u in _appel("/admin/users"):
+        c = u.get("User", u)
+        if (c.get("email") or "").lower() == email.lower():
+            return str(c.get("id"))
+
+    moi = (_appel("/users/view/me").get("User") or {})
+    org = moi.get("org_id")
+    if not org:
+        raise SystemExit(f"{ROUGE}organisation de l'utilisateur courant introuvable{FIN}")
+    rep = _appel("/admin/users/add", {
+        "email": email, "org_id": org, "role_id": role_id,
+        "password": _mot_de_passe(), "change_pw": 0, "termsaccepted": 1,
+        "autoalert": 0, "disabled": 0,
+    })
+    uid = (rep.get("User") or rep).get("id")
     if not uid:
-        raise SystemExit(f"{ROUGE}impossible de déterminer l'utilisateur courant{FIN}")
+        raise SystemExit(f"{ROUGE}création du compte refusée{FIN}\n  {json.dumps(rep)[:400]}")
+    print(f"  {VERT}compte dédié créé{FIN} — {email} (rôle {role_id}, organisation {org})",
+          file=sys.stderr)
+    return str(uid)
+
+
+def cree(commentaire: str, expiration: str, email: str, role_id: str) -> str:
+    uid = utilisateur_dedie(email, role_id)
     rep = _appel(f"/auth_keys/add/{uid}", {"comment": commentaire, "expiration": expiration})
     a = rep.get("AuthKey", rep)
     brute = a.get("authkey_raw") or a.get("authkey")
@@ -101,7 +148,10 @@ def main() -> None:
 
     commentaire = opt("--commentaire", f"outil d'alimentation — créée le {date.today()}")
     expiration = opt("--expire", "")
-    cle = cree(commentaire, expiration)
+    domaine = ADMIN_EMAIL.partition("@")[2] or "cti-lab.local"
+    email = opt("--utilisateur", f"automation@{domaine}")
+    role = opt("--role", ROLE_UTILISATEUR)
+    cle = cree(commentaire, expiration, email, role)
 
     if "--env" in args:
         avertit_localhost()

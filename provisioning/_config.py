@@ -60,6 +60,9 @@ MISP_VERIFY_SSL = os.environ.get("MISP_VERIFY_SSL", "0") not in {"0", "false", "
 # pont OpenCTI -> MISP et la seule que connector-misp réimporte (MISP_ORG dans
 # opencti/.env, source unique pour les deux piles).
 MISP_ORG = os.environ.get("MISP_ORG") or _OCTI.get("MISP_ORG", "ruggdoll")
+# identité du compte admin MISP : sert à dériver le domaine des comptes de
+# service créés à côté (cf. provisioning/misp_cle_automation.py).
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL") or _MISP.get("ADMIN_EMAIL", "admin@cti-lab.local")
 
 
 def opencti_client(**kw):
