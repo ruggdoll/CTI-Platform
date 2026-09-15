@@ -187,10 +187,22 @@ Elle avertit si elle est déclarée sur `localhost` — auquel cas rien de ce
 qu'elle émet ne servira à un outil situé ailleurs — et règle `MISP_VERIFY_SSL`
 en lisant le certificat réellement en place plutôt qu'en le supposant.
 
+`make adressage` émet la clé **admin**, que `make misp-setup` régénère : tout
+traitement qui s'en sert tombe alors en 403. Pour ce qui tourne sans
+surveillance, préférer une clé dédiée, qui survit à cette rotation :
+
+```bash
+make cle-automation ARGS="--env --commentaire 'nom de l outil'" > …/.env
+make cle-automation ARGS=--lister         # inventaire, sans révéler de secret
+```
+
+MISP ne montre la valeur d'une clé **qu'à sa création** : ce fragment est le
+seul endroit où elle apparaît. Elle n'est ensuite que révocable.
+
 | Vers | Interface | Adressage |
 |---|---|---|
 | OpenCTI | bundle STIX 2.1 : connecteur `import-file-stix` (dossier surveillé) ou `stix2.import_bundle_from_file` (pycti). Un `Report` par publication, étiqueté `export-misp` pour être repris par le pont retour et par la collection TAXII | `opencti/.env` : `OPENCTI_EXTERNAL_SCHEME`, `OPENCTI_HOST`, `OPENCTI_PORT`, `OPENCTI_ADMIN_TOKEN` |
-| MISP | feed MISP natif enregistré par l'API, ou event construit par l'API (PyMISP) | `vendor/misp-docker/.env` : `BASE_URL` ; clé : `MISP_KEY` de `opencti/.env`, ou de préférence une **clé d'automation dédiée** (Administration > Auth Keys > Add) pour qu'une rotation de la clé admin ne casse pas les traitements |
+| MISP | feed MISP natif enregistré par l'API, ou event construit par l'API (PyMISP) | `vendor/misp-docker/.env` : `BASE_URL` ; clé : `make cle-automation` (**dédiée**, elle survit à `make misp-setup` — contrairement à `MISP_KEY`, qui est la clé admin) |
 
 Deux contraintes de la plateforme : les events du pont retour restent en
 distribution 1 (signal anti-boucle, ne jamais les passer en 3), et un

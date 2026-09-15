@@ -123,7 +123,8 @@ d'alimentation doit savoir :
 
 L'adressage, c'est la plateforme qui l'émet — `make adressage` en donne
 l'aperçu, `make adressage ARGS=--secrets` le fragment `.env` à rediriger dans
-l'outil. Aller lire `opencti/.env` à la main ne vaut que si l'outil tourne sur
+l'outil, et `make cle-automation ARGS=--env` le même fragment avec une clé MISP
+**dédiée**, qui survit à une rotation de la clé admin. Aller lire `opencti/.env` à la main ne vaut que si l'outil tourne sur
 la même machine ; dès que la plateforme est ailleurs, c'est cette commande qui
 fait foi.
 
