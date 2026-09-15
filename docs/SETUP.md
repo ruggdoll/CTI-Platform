@@ -189,7 +189,16 @@ en lisant le certificat réellement en place plutôt qu'en le supposant.
 
 `make adressage` émet la clé **admin**, que `make misp-setup` régénère : tout
 traitement qui s'en sert tombe alors en 403. Pour ce qui tourne sans
-surveillance, préférer une clé dédiée, qui survit à cette rotation :
+surveillance, préférer une clé dédiée.
+
+**Dédiée veut dire sur un AUTRE compte.** `make misp-setup` appelle
+`cake user change_authkey`, qui invalide *toutes* les clés de l'utilisateur
+visé, pas seulement la précédente : une clé d'automation créée sur le compte
+admin tombe avec lui. Mesuré le 2026-09-15 — HTTP 403 après rotation.
+`make cle-automation` crée donc un compte de service (`automation@<domaine de
+l'admin>`, rôle **User** : API autorisée, création d'events permise, ni
+administration ni synchronisation) et mine la clé pour lui. Vérifié après
+rotation : clé admin renouvelée, clé d'automation toujours en HTTP 200.
 
 ```bash
 make cle-automation ARGS="--env --commentaire 'nom de l outil'" > …/.env
