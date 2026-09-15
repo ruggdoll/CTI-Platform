@@ -364,8 +364,13 @@ services:
     # vaut `host-gateway` en rootful ; en ROOTLESS il doit valoir l'adresse
     # réelle de l'hôte (`make init` la détecte), sans quoi CE PONT NE PUBLIE
     # RIEN : `host-gateway` y désigne un pont où aucun port n'est écouté.
+    # Ce connecteur joint MISP, pas OpenCTI : c'est le nom de MISP qui doit
+    # résoudre ici. Tant qu'il n'y avait qu'une seule façade, OPENCTI_HOST
+    # portait le nom des deux et la confusion ne se voyait pas. Avec deux
+    # identités, elle laisse le connecteur sans entrée pour le nom de MISP :
+    # « Unable to connect to MISP », et il boucle en redémarrage.
     extra_hosts:
-      - "${OPENCTI_HOST}:${CTI_HOST_TARGET:-host-gateway}"
+      - "${MISP_HOSTNAME:-${OPENCTI_HOST}}:${CTI_HOST_TARGET:-host-gateway}"
     restart: always
     depends_on: {opencti: {condition: service_healthy}}
 
