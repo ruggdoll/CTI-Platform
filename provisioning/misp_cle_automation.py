@@ -24,6 +24,7 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
+from datetime import date, datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _config import MISP_KEY, MISP_URL, MISP_VERIFY_SSL  # noqa: E402
@@ -52,19 +53,28 @@ def _appel(chemin: str, corps: dict | None = None) -> dict:
         raise SystemExit(f"{ROUGE}MISP injoignable sur {MISP_URL} : {e}{FIN}") from e
 
 
+def _date(v) -> str:
+    """MISP renvoie ces champs en secondes epoch ; 0 vaut « pas d'expiration »."""
+    if v in (None, "", "0", 0):
+        return "jamais"
+    try:
+        return datetime.fromtimestamp(int(v)).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OSError):
+        return str(v)[:11]
+
+
 def lister() -> None:
     d = _appel("/auth_keys/index")
     lignes = d if isinstance(d, list) else d.get("AuthKeys", [])
     if not lignes:
         print("  aucune clé d'automation enregistrée")
         return
-    print(f"  {'id':>4}  {'début…fin':<14} {'expiration':<12} commentaire")
+    print(f"  {'id':>4}  {'début…fin':<14} {'créée':<11} {'expiration':<11} commentaire")
     for e in lignes:
         a = e.get("AuthKey", e)
-        exp = a.get("expiration") or "0"
-        exp = "jamais" if str(exp) in {"0", "", "None"} else str(exp)[:10]
         print(f"  {str(a.get('id','?')):>4}  {a.get('authkey_start','?')}…{a.get('authkey_end','?'):<6} "
-              f"{exp:<12} {a.get('comment','') or '(sans commentaire)'}")
+              f"{_date(a.get('created')):<11} {_date(a.get('expiration')):<11} "
+              f"{a.get('comment','') or '(sans commentaire)'}")
 
 
 def cree(commentaire: str, expiration: str) -> str:
@@ -89,7 +99,6 @@ def main() -> None:
     def opt(nom: str, defaut: str) -> str:
         return args[args.index(nom) + 1] if nom in args and len(args) > args.index(nom) + 1 else defaut
 
-    from datetime import date
     commentaire = opt("--commentaire", f"outil d'alimentation — créée le {date.today()}")
     expiration = opt("--expire", "")
     cle = cree(commentaire, expiration)
