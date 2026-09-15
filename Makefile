@@ -179,6 +179,7 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	    sed -i "s|^BIND_ADDRESS=.*|BIND_ADDRESS=127.0.0.1|" "$(ENV_FILE)"; \
 	    sed -i "s|^CORE_HTTP_PORT=.*|CORE_HTTP_PORT=8081|" "$(ENV_FILE)"; \
 	    sed -i "s|^CORE_HTTPS_PORT=.*|CORE_HTTPS_PORT=8444|" "$(ENV_FILE)"; \
+	    sed -i "s|^DISABLE_SSL_REDIRECT=.*|DISABLE_SSL_REDIRECT=true|" "$(ENV_FILE)"; \
 	  fi; \
 	  echo "  $(ENV_FILE) généré (BASE_URL=https://$(HOST), org $(MISP_ORG))"; \
 	fi
