@@ -75,6 +75,13 @@ endif
 # connecteurs) restent tirés au hasard : ils ne se saisissent jamais.
 DEFAULT_PASSWORD ?= MyP@ssword42!
 
+# Délai laissé aux deux piles pour se fermer proprement à l'extinction (unité
+# posée par `make autostart`). MariaDB doit vider son buffer pool et
+# Elasticsearch écrire son translog ; les 15 s par défaut de dockerd les
+# tueraient en pleine écriture. Plafonné par le TimeoutStopSec de
+# user@<uid>.service, que prepare_host.sh porte à 300 s.
+AUTOSTART_TIMEOUT ?= 300
+
 # Dimensionnement mémoire, calculé à la création des .env. Les valeurs des
 # .env.example visaient une machine de 31 Go dédiée à MISP ; ici les DEUX piles
 # cohabitent (MariaDB + Elasticsearch + OpenCTI + workers + connecteurs), donc
@@ -157,6 +164,10 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 up: $(ENV_FILE) ## Démarre la stack MISP (build/pull au 1er lancement)
 	$(RUN) '$(COMPOSE) up -d'
 	@echo "MISP démarre… suivre avec 'make logs'. Prêt quand le healthcheck misp-core passe."
+
+.PHONY: stop
+stop: ## ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (repartent au boot)
+	$(RUN) '$(COMPOSE) stop'
 
 .PHONY: down
 down: ## Arrête la stack (conserve les volumes)
@@ -263,6 +274,35 @@ bridge-setup: ## câble le pont OpenCTI -> MISP (label export-misp + live stream
 .PHONY: bridge-test
 bridge-test: ## contrôle bout en bout : crée un rapport DANS OpenCTI, le cherche dans MISP, puis nettoie (ARGS=--keep pour conserver)
 	./.venv/bin/python provisioning/bridge_test.py $(ARGS)
+
+.PHONY: opencti-down
+opencti-stop: ## ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CONSERVÉS
+	$(RUN) '$(OCTI) --profile feeds stop'
+
+.PHONY: stop-all
+stop-all: opencti-stop stop ## ARRÊT PROPRE des deux piles, OpenCTI d'abord (il consomme MISP)
+	@echo "  les deux piles sont arrêtées ; les conteneurs existent toujours et"
+	@echo "  repartiront au prochain démarrage du démon (restart: always)."
+
+.PHONY: autostart
+autostart: ## Installe l'unité systemd qui arrête PROPREMENT les piles à l'extinction
+	@mkdir -p "$(HOME)/.config/systemd/user"
+	@sed -e 's|@REPO@|$(CURDIR)|g' -e 's|@UID@|$(shell id -u)|g' \
+	     -e 's|@TIMEOUT@|$(AUTOSTART_TIMEOUT)|g' \
+	     provisioning/systemd/cti-platform.service.in \
+	     > "$(HOME)/.config/systemd/user/cti-platform.service"
+	systemctl --user daemon-reload
+	systemctl --user enable --now cti-platform.service
+	@echo "  unité posée : arrêt propre des deux piles avant l'extinction du démon."
+	@plafond=$$(systemctl show user@$(shell id -u).service -p TimeoutStopUSec --value 2>/dev/null); \
+	 echo "  plafond du gestionnaire de session (user@$(shell id -u).service) : $$plafond"; \
+	 echo "  au-delà, systemd tue la session : prepare_host.sh pose un drop-in à 300 s."
+
+.PHONY: autostart-off
+autostart-off: ## Retire l'unité d'arrêt propre
+	-systemctl --user disable --now cti-platform.service
+	rm -f "$(HOME)/.config/systemd/user/cti-platform.service"
+	systemctl --user daemon-reload
 
 .PHONY: opencti-down
 opencti-down: ## arrête le stack OpenCTI (volumes conservés)

@@ -50,7 +50,7 @@ dimensionne les deux piles sur la RAM réelle de la machine. Le mode rootful
 reste utilisable sans réglage particulier.
 
 `HOST` est **le** paramètre du déploiement : le nom (FQDN) ou l'IP par lequel
-les clients joindront la plateforme. `make build` enchaîne les huit étapes et
+les clients joindront la plateforme. `make build` enchaîne les neuf étapes et
 **attend** entre elles — API MISP disponible, plateforme OpenCTI en ligne,
 socle ATT&CK complet — parce que l'ordre n'est pas interchangeable et qu'il ne
 doit pas reposer sur la mémoire de celui qui déploie :
@@ -65,6 +65,7 @@ doit pas reposer sur la mémoire de celui qui déploie :
 6. make bridge-setup  label export-misp + live stream, puis recrée le connecteur
 7. socle-opencti      SOCLE OpenCTI : rapports STIX publics VIGINUM
 8. make opencti-feeds connecteurs de flux OpenCTI
+9. make autostart     arrêt propre des piles à l'extinction (unité systemd)
 ```
 
 La cible est **idempotente** : relançable sur une plateforme à moitié
@@ -188,6 +189,7 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | rotation de la clé API MISP, réalignement de l'organisation | `make misp-setup` |
 | contrôle bout en bout | `make bridge-test` |
 | sauvegarde complète | `provisioning/backup_infra.sh` — volumes, montages liés, `.env`, dépôts ; conteneurs arrêtés |
+| arrêt propre, conteneurs conservés | `make stop-all` — ils repartent au démarrage suivant du démon |
 | arrêt, remise à zéro | `make down` / `make opencti-down` ; `make destroy` / `make opencti-destroy` (**perte totale**) |
 
 ## Arborescence

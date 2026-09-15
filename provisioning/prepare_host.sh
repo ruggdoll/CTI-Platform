@@ -189,6 +189,19 @@ $UTILISATEUR soft memlock unlimited
 $UTILISATEUR hard memlock unlimited
 EOF
 ok "limites nofile/memlock accordées à $UTILISATEUR"
+# À l'extinction, systemd arrête la session utilisateur, donc le démon Docker,
+# qui arrête les conteneurs. Le plafond par défaut (2 min) ne laisse pas à
+# MariaDB le temps de vider un gros buffer pool ni à Elasticsearch d'écrire son
+# translog : ils sont tués en pleine écriture et repartent en récupération.
+# Drop-in ciblé sur CETTE instance, pas sur toutes les sessions de la machine.
+install -d "/etc/systemd/system/user@${UID_CIBLE}.service.d"
+cat > "/etc/systemd/system/user@${UID_CIBLE}.service.d/10-cti-platform.conf" <<EOF
+[Service]
+# Laisser aux deux piles le temps de se fermer proprement (voir make autostart).
+TimeoutStopSec=300
+EOF
+systemctl daemon-reload
+ok "délai d'arrêt de la session $UTILISATEUR porté à 300 s"
 # Sans linger, la session systemd de l'utilisateur disparaît à la déconnexion
 # et emporte le démon rootless — donc toute la plateforme.
 loginctl enable-linger "$UTILISATEUR"

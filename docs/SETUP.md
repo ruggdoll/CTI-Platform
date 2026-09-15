@@ -186,6 +186,29 @@ distribution 1 (signal anti-boucle, ne jamais les passer en 3), et un
 observable qu'un rapport porte déjà dans OpenCTI ne se réimporte pas dans MISP
 — il y arrive par le pont.
 
+## 5 bis. Extinction, redémarrage, correctifs de sécurité
+
+À l'extinction, systemd arrête le démon Docker, qui arrête les conteneurs avec
+son `--shutdown-timeout` par défaut de **15 secondes**. C'est trop court pour
+MariaDB, qui doit vider son buffer pool, et pour Elasticsearch, qui doit
+écrire son translog : tués en pleine écriture, ils repartent en récupération.
+
+`make autostart` (posé par `make build`, étape 9/9) installe une unité systemd
+utilisateur ordonnée **après** le démon — donc arrêtée **avant** lui — dont
+l'`ExecStop` lance `make stop-all` pendant que dockerd répond encore.
+`AUTOSTART_TIMEOUT` règle le délai accordé (300 s par défaut) ;
+`prepare_host.sh` porte en parallèle le `TimeoutStopSec` de
+`user@<uid>.service` à 300 s, sans quoi le plafond de 2 minutes du gestionnaire
+de session s'appliquerait quand même.
+
+Le redémarrage automatique n'est pas perdu pour autant : Docker n'ignore la
+politique `restart` d'un conteneur arrêté explicitement que **jusqu'au
+redémarrage du démon**. Au démarrage de la machine, le linger relance la
+session, donc le démon, qui relance tout ce qui est en `restart: always`.
+
+`make autostart-off` retire l'unité. `make stop-all` s'utilise aussi à la main
+avant une intervention.
+
 ## 6. Mise à jour de MISP
 
 ```bash
