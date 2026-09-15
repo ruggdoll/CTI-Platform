@@ -142,6 +142,35 @@ def inspecte(chemin: pathlib.Path) -> dict:
             "marquages": sorted({m for o in objs for m in (o.get("object_marking_refs") or [])})}
 
 
+def ecarte_orphelines(chemin: pathlib.Path) -> tuple[pathlib.Path, int]:
+    """Écarte les relations dont une extrémité est absente du bundle.
+
+    Au SHA épinglé, le bundle RRN de VIGINUM porte une relation qui pointe vers
+    un indicateur absent du bundle. OpenCTI la refuse — MISSING_REFERENCE_ERROR
+    — et pycti journalise un traceback complet au milieu du build, pour un
+    objet qui de toute façon ne peut PAS exister dans le graphe : sa cible
+    n'est nulle part. Un opérateur qui lit le journal ne peut pas distinguer
+    cette trace d'un incident réel.
+
+    On les retire donc avant l'import, et on dit combien. Le fichier source
+    téléchargé n'est pas modifié : la copie filtrée est écrite à côté, ce qui
+    garde vérifiable ce que la source publie réellement.
+    """
+    b = json.loads(chemin.read_text(encoding="utf-8"))
+    objs = b.get("objects") or []
+    ids = {o.get("id") for o in objs}
+    gardes = [o for o in objs
+              if o.get("type") != "relationship"
+              or (o.get("source_ref") in ids and o.get("target_ref") in ids)]
+    ecartees = len(objs) - len(gardes)
+    if not ecartees:
+        return chemin, 0
+    b["objects"] = gardes
+    cible = chemin.with_suffix(".importable.json")
+    cible.write_text(json.dumps(b), encoding="utf-8")
+    return cible, ecartees
+
+
 def main():
     args = sys.argv[1:]
     if "--pin" in args:
@@ -188,8 +217,13 @@ def main():
     c = opencti_client()
     print()
     for chemin in fichiers:
-        c.stix2.import_bundle_from_file(str(chemin), update=False)
-        print(f"  poussé : {chemin.name}")
+        source, ecartees = ecarte_orphelines(chemin)
+        c.stix2.import_bundle_from_file(str(source), update=False)
+        if ecartees:
+            print(f"  poussé : {chemin.name}  "
+                  f"({ecartees} relation(s) orpheline(s) écartée(s) — cible absente du bundle)")
+        else:
+            print(f"  poussé : {chemin.name}")
 
     # Le pont retour ne reprend que les Reports étiquetés export-misp. Poser ce
     # label n'altère pas le contenu de la source : c'est notre marqueur de

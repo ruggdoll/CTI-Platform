@@ -3,6 +3,10 @@
 # Appliqué par le Makefile (-f vendor/misp-docker/docker-compose.yml -f compose.tuning.yml).
 services:
   db:
+    # MariaDB doit vider son buffer pool avant de rendre la main. Le défaut
+    # Docker est de 10 s sur TOUT chemin d'arrêt — y compris l'arrêt du démon,
+    # que `compose stop -t` ne couvre pas. Voir opencti/docker-compose.yml.
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     volumes:
       - ${CTI_PLATFORM_ROOT}/docker/mariadb-tuning.cnf:/etc/mysql/mariadb.conf.d/99-cti-platform.cnf:ro
     # cgroup : réserver la RAM au buffer pool (voir INNODB_BUFFER_POOL_SIZE dans .env)
@@ -10,7 +14,8 @@ services:
     mem_reservation: 8g
 
   misp-core:
-    # imports longs : ne pas tuer un worker de feed en cours
+    # imports longs : ne pas tuer un worker de feed en cours — à l'arrêt non plus
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     environment:
       - "FASTCGI_READ_TIMEOUT=600s"
       - "PHP_MEMORY_LIMIT=3072M"

@@ -1,15 +1,25 @@
 # OpenCTI — stack allégé pour ruggdoll (Phase 4 du plan qualité).
 # Dérivé de OpenCTI-Platform/docker (upstream/), sans XTM One ni connecteurs
 # d'export. Le connecteur MISP est branché sur le réseau de la stack MISP.
+# `stop_grace_period` : sursis accordé à CHAQUE conteneur avant son SIGKILL.
+# Sans lui, Docker applique 10 secondes — sur TOUT chemin d'arrêt : arrêt du
+# démon, gestionnaire de redémarrage, `docker stop` à la main. Passer -t à
+# `compose stop` ne couvre que ce seul appel ; le déclarer ici couvre tout.
+# Constaté au redémarrage du 2026-09-15 : « Container failed to exit within
+# 10s of signal 15 - using the force ».
+#   STOP_GRACE_DATA : ce qui porte des données et doit se fermer proprement
+#   STOP_GRACE_APP  : les processus sans état, où traîner ne sert à rien
 services:
 
   redis:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     image: redis:8.8.0
     restart: always
     volumes: [redisdata:/data]
     healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 3}
 
   elasticsearch:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.16
     volumes: [esdata:/usr/share/elasticsearch/data]
     environment:
@@ -30,6 +40,7 @@ services:
       retries: 60
 
   minio:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     # Image ÉPINGLÉE et tirée de quay.io, jamais `minio/minio:latest` de Docker
     # Hub : au 2026-09-14, ce dépôt refuse le téléchargement anonyme
     # (« pull access denied … may require docker login »), ce qui fait échouer
@@ -51,6 +62,7 @@ services:
     healthcheck: {test: ["CMD", "mc", "ready", "local"], interval: 10s, timeout: 5s, retries: 3}
 
   rabbitmq:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     image: rabbitmq:4.3-management
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}
@@ -63,6 +75,7 @@ services:
     healthcheck: {test: rabbitmq-diagnostics -q ping, interval: 30s, timeout: 30s, retries: 3}
 
   opencti:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
     image: opencti/platform:7.260901.0
     environment:
       - NODE_OPTIONS=--max-old-space-size=4096
@@ -114,6 +127,7 @@ services:
       retries: 90
 
   worker:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/worker:7.260901.0
     environment:
       - OPENCTI_URL=http://opencti:8080
@@ -126,6 +140,7 @@ services:
 
   # ---- connecteurs internes ----
   connector-import-file-stix:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-import-file-stix:7.260901.0
     environment:
       - OPENCTI_URL=http://opencti:8080
@@ -140,6 +155,7 @@ services:
     depends_on: {opencti: {condition: service_healthy}}
 
   connector-import-document:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-import-document:7.260901.0
     environment:
       - OPENCTI_URL=http://opencti:8080
@@ -156,6 +172,7 @@ services:
     depends_on: {opencti: {condition: service_healthy}}
 
   connector-analysis:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-import-document:7.260901.0
     environment:
       - OPENCTI_URL=http://opencti:8080
@@ -184,6 +201,7 @@ services:
   # au lieu de celle de VIGINUM, sans dedup possible. ATT&CK fournit deja les
   # acteurs, malwares et techniques de reference.
   connector-mitre:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-mitre:7.260901.0
     environment:
       - OPENCTI_URL=http://opencti:8080
@@ -213,6 +231,7 @@ services:
   # `make opencti-up`, mais avec `make opencti-feeds`, une fois l'ATT&CK en
   # base. Sur 4 coeurs, tout demarrer ensemble sature les workers.
   connector-cisa-kev:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-cisa-known-exploited-vulnerabilities:7.260901.0
     profiles: ["feeds"]
     environment:
@@ -231,6 +250,7 @@ services:
 
   # ---- pont MISP -> OpenCTI ----
   connector-misp:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-misp:7.260901.0
     networks: [default, misp]
     environment:
@@ -302,6 +322,7 @@ services:
   # créé par 'make bridge-setup' (provisioning/bridge_setup.py), qui écrit son
   # id dans CONNECTOR_MISP_INTEL_STREAM_ID.
   connector-misp-intel:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
     image: opencti/connector-misp-intel:1.0.0
     networks: [default, misp]
     environment:

@@ -201,14 +201,18 @@ réglé alors qu'il ne l'est pas :
 
 | Réglage | Ce qu'il borne | Défaut |
 |---|---|---|
-| `STOP_TIMEOUT` | le sursis de **chaque conteneur** avant son SIGKILL, passé à `compose stop -t` | 120 s |
+| `STOP_GRACE_DATA` / `STOP_GRACE_APP` | le sursis de chaque conteneur **sur tout chemin d'arrêt**, déclaré en `stop_grace_period` dans les compose | 120 s / 30 s |
+| `STOP_TIMEOUT` | le même sursis, mais pour le seul appel `make stop` / `stop-all` (`compose stop -t`) | 120 s |
 | `AUTOSTART_TIMEOUT` | la durée **totale** de l'arrêt, `TimeoutStopSec` de l'unité | 300 s |
 | drop-in `user@<uid>.service` | le plafond du gestionnaire de session, posé par `prepare_host.sh` | 300 s |
 
-Sans `STOP_TIMEOUT`, `compose stop` n'accorde que **10 secondes** par conteneur
-et MariaDB est tuée en pleine écriture — quels que soient les deux autres
-réglages. Sans le drop-in, le gestionnaire de session serait tué au bout de
-2 minutes, emportant l'arrêt en cours.
+Le premier est le seul qui protège **partout**. Docker n'accorde que
+**10 secondes** par défaut, et ce défaut s'applique à l'arrêt du démon, au
+gestionnaire de redémarrage et à `docker stop` — trois chemins que `-t` ne
+couvre pas. Sans lui, MariaDB est tuée en pleine écriture même quand tout le
+reste est correctement réglé ; c'est exactement ce qu'un redémarrage réel a
+montré le 2026-09-15. Sans le drop-in, le gestionnaire de session serait tué
+au bout de 2 minutes, emportant l'arrêt en cours.
 
 Le redémarrage automatique n'est pas perdu pour autant : Docker n'ignore la
 politique `restart` d'un conteneur arrêté explicitement que **jusqu'au
