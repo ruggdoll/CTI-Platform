@@ -283,6 +283,36 @@ misp-setup: ## ROTATION : régénère la clé API admin, la repose dans les .env
 	./.venv/bin/python provisioning/misp_org.py
 	@echo "→ ensuite : make opencti-up puis make bridge-setup"
 
+# Adresse de contact du compte Let's Encrypt (avis d'expiration). Obligatoire
+# pour `make cert-manuel`.
+CERT_EMAIL ?=
+
+.PHONY: cert-manuel
+cert-manuel: ## CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE=<domaine> CERT_EMAIL=<courriel>
+	@test -n "$(DOMAINE)"    || { echo "  DOMAINE=<domaine> manquant"; exit 1; }
+	@test -n "$(CERT_EMAIL)" || { echo "  CERT_EMAIL=<courriel> manquant (avis d'expiration Let's Encrypt)"; exit 1; }
+	@echo "  Un certificat JOKER *.$(DOMAINE) : un seul enregistrement TXT couvre"
+	@echo "  misp.$(DOMAINE), opencti.$(DOMAINE) et tous ceux que vous ajouterez."
+	@echo "  certbot va afficher le TXT à créer chez votre hébergeur DNS, puis attendre."
+	@echo "  Laissez-lui le temps de se propager AVANT de valider (dig TXT _acme-challenge.$(DOMAINE))."
+	@echo
+	$(RUN) 'docker run -it --rm -v proxy_certificats:/etc/letsencrypt \
+	  certbot/certbot certonly --manual --preferred-challenges dns \
+	  -d "*.$(DOMAINE)" --agree-tos --no-eff-email -m "$(CERT_EMAIL)"'
+	@echo
+	@echo "  Certificat obtenu. Renseigner dans $(OCTI_ENV) :"
+	@echo "    CADDY_TLS=/certs/live/$(DOMAINE)/fullchain.pem /certs/live/$(DOMAINE)/privkey.pem"
+	@echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
+	@echo
+	@echo "  RENOUVELLEMENT : Let's Encrypt délivre pour 90 jours et le DNS-01 manuel"
+	@echo "  n'est pas automatisable. Relancer cette même commande avant l'échéance ;"
+	@echo "  un TXT à reposer, quel que soit le nombre de noms."
+
+.PHONY: cert-etat
+cert-etat: ## Échéance du certificat public servi par la façade
+	@$(RUN) 'docker run --rm -v proxy_certificats:/etc/letsencrypt certbot/certbot certificates' 2>/dev/null \
+	  | grep -E "Certificate Name|Domains|Expiry Date" || echo "  aucun certificat public (autorité locale)"
+
 .PHONY: proxy-up
 proxy-up: ## DÉMARRE la façade HTTPS seule (crée le réseau OpenCTI au passage)
 	@grep -qsE '^MISP_HOSTNAME=.+' "$(OCTI_ENV)" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 0; }

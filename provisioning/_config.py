@@ -67,6 +67,11 @@ MISP_ORG = os.environ.get("MISP_ORG") or _OCTI.get("MISP_ORG", "ruggdoll")
 # identité du compte admin MISP : sert à dériver le domaine des comptes de
 # service créés à côté (cf. provisioning/misp_cle_automation.py).
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL") or _MISP.get("ADMIN_EMAIL", "admin@cti-lab.local")
+# Façade HTTPS : MISP_HOSTNAME n'est renseigné qu'en mode proxy inverse, et
+# CADDY_TLS qu'avec un certificat public. Ce que voit un CLIENT dépend alors du
+# certificat de la façade, plus de celui, interne, de la pile MISP.
+MISP_HOSTNAME = _OCTI.get("MISP_HOSTNAME", "")
+CADDY_TLS = _OCTI.get("CADDY_TLS", "")
 
 
 def opencti_client(**kw):

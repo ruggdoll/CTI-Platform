@@ -25,6 +25,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _config import (  # noqa: E402
+    CADDY_TLS,
+    MISP_HOSTNAME,
     MISP_KEY,
     MISP_ORG,
     MISP_URL,
@@ -41,13 +43,19 @@ def masque(v: str) -> str:
 
 
 def cert_au_nom_de_l_hote() -> tuple[bool, str]:
-    """Le certificat MISP porte-t-il autre chose que le CN=localhost livré ?
+    """Un consommateur peut-il vérifier le TLS, et pourquoi ?
 
-    Détermine si un consommateur peut vérifier le TLS. Poser MISP_VERIFY_SSL=1
-    alors que le certificat auto-signé d'origine est en place ferait échouer
-    tous ses appels ; poser 0 alors qu'un vrai certificat existe affaiblit la
-    liaison sans raison. On regarde plutôt que de deviner.
+    Poser MISP_VERIFY_SSL=1 alors que le certificat en place est auto-signé
+    ferait échouer tous ses appels ; poser 0 alors qu'un vrai certificat existe
+    affaiblit la liaison sans raison. On regarde donc ce qui est réellement
+    servi — et DERRIÈRE UNE FAÇADE, ce n'est plus le certificat interne de la
+    pile MISP que voit le client, mais celui du proxy.
     """
+    if MISP_HOSTNAME:
+        if CADDY_TLS:
+            return True, "certificat public servi par la façade"
+        return False, ("autorité locale de la façade — installer sa racine "
+                       "(make proxy-ca) puis passer à 1")
     if not CERT.exists():
         return False, "aucun certificat dans vendor/misp-docker/ssl/"
     try:

@@ -143,9 +143,22 @@ auto-signé `CN=localhost` livré par la pile MISP.
 Avec un domaine enregistré dont les noms n'ont pas à exister sur Internet,
 Let's Encrypt reste utilisable : **HTTP-01 est impossible** — il faut que le
 nom soit joignable publiquement sur le port 80 — mais **DNS-01 fonctionne**, il
-ne demande qu'un enregistrement TXT dans la zone. Voir
-[`docs/SETUP.md`](docs/SETUP.md) : l'architecture est identique, seule la
-fabrique des certificats change.
+ne demande qu'un enregistrement TXT dans la zone.
+
+```bash
+make cert-manuel DOMAINE=<domaine> CERT_EMAIL=<courriel>   # certbot affiche le TXT et attend
+```
+
+Le challenge est fait à la main : la procédure ne dépend d'aucun hébergeur DNS
+particulier, et aucun jeton d'API n'est confié à la plateforme. Le certificat
+est un joker `*.<domaine>`, donc **un seul TXT** couvre les deux noms.
+
+La contrepartie est assumée : 90 jours de validité et pas d'automatisation
+possible, donc un renouvellement manuel trimestriel. Le choix se fait entre un
+geste par poste client une fois (autorité locale) et un geste sur le serveur
+tous les trois mois (certificat public). Détails dans
+[`docs/SETUP.md`](docs/SETUP.md) : l'architecture est identique dans les deux
+cas, seule la fabrique des certificats change.
 
 ## Le socle — à poser avant tout flux
 

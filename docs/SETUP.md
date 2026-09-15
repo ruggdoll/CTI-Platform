@@ -295,16 +295,47 @@ passer à `1`.
 L'autorité vit dans le volume `proxy_ac_locale` : le détruire oblige tous les
 clients à refaire confiance à une nouvelle racine.
 
-### Passer à un domaine public
+### Un certificat public, sans exposer la plateforme
 
 Avec un domaine enregistré dont les noms n'existent pas sur Internet — le cas
 courant d'un laboratoire — **HTTP-01 est impossible** : Let's Encrypt doit
 joindre le nom sur le port 80 public. **DNS-01 fonctionne** : il ne demande
-qu'un TXT dans la zone, aucune exposition entrante, et permet un certificat
-joker qui couvre les deux noms. Remplacer `tls internal` par
-`tls { dns <registrar> <jeton> }` dans `proxy/Caddyfile`, relancer
-`make init DOMAINE=<domaine public>` sur une installation neuve. Rien d'autre
-ne bouge : l'architecture est la même, seule la fabrique des certificats change.
+qu'un enregistrement TXT dans la zone, aucune exposition entrante.
+
+Le challenge est fait **à la main**, ce qui rend la procédure indépendante de
+l'hébergeur DNS : pas de module spécifique à compiler, pas de jeton d'API à
+confier à la plateforme.
+
+```bash
+make cert-manuel DOMAINE=<domaine> CERT_EMAIL=<courriel>
+```
+
+certbot affiche le TXT à créer, puis attend. Poser l'enregistrement chez
+l'hébergeur, **laisser le temps à la propagation** — le vérifier avec
+`dig TXT _acme-challenge.<domaine>` — et seulement ensuite valider. Puis :
+
+```bash
+# dans opencti/.env
+CADDY_TLS=/certs/live/<domaine>/fullchain.pem /certs/live/<domaine>/privkey.pem
+```
+
+```bash
+make opencti-up      # recrée la façade avec le certificat public
+make cert-etat       # échéance du certificat servi
+```
+
+Le certificat demandé est un **joker** `*.<domaine>` : un seul TXT couvre
+`misp.`, `opencti.` et tous les noms à venir.
+
+**Le prix à payer, et il est réel** : Let's Encrypt délivre pour 90 jours, et
+un DNS-01 manuel ne s'automatise pas. Il faut relancer `make cert-manuel` avant
+chaque échéance et reposer un TXT. C'est précisément la corvée périodique que
+l'autorité locale évite — le choix se fait donc entre « un geste par poste
+client, une fois » et « un geste sur le serveur, tous les trois mois ».
+
+En échange : plus aucune racine à distribuer, les navigateurs font confiance
+nativement, et `make adressage` émet `MISP_VERIFY_SSL=1` de lui-même puisqu'il
+constate un certificat public.
 
 ## 6. Mise à jour de MISP
 

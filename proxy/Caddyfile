@@ -10,9 +10,13 @@
 # périodique à prévoir. Le seul geste manuel est d'importer la racine dans le
 # magasin de confiance des postes clients, une fois — « make proxy-ca ».
 #
-# Pour passer à un domaine public (Let's Encrypt), remplacer `tls internal` par
-# `tls { dns <registrar> <jeton> }` : le challenge DNS-01 n'exige aucune
-# exposition sur Internet, seulement un TXT dans la zone. Rien d'autre ne bouge.
+# CADDY_TLS choisit la fabrique des certificats, sans toucher à ce fichier :
+#   absent            -> `internal`, l'autorité locale ci-dessus
+#   deux chemins      -> des certificats fournis, p. ex. par Let's Encrypt
+#                        (`make cert-manuel`, challenge DNS-01 manuel)
+# Caddy substitue les variables TEXTUELLEMENT avant d'analyser le fichier :
+# « /certs/…/fullchain.pem /certs/…/privkey.pem » y devient donc bien DEUX
+# arguments de la directive `tls`, comme si on les avait écrits à la main.
 
 {
 	admin off
@@ -20,7 +24,7 @@
 }
 
 {$MISP_HOSTNAME} {
-	tls internal
+	tls {$CADDY_TLS:-internal}
 	# misp-core sert du HTTP clair sur 80 (la redirection vers 443 est
 	# commentée dans son nginx) : on termine le TLS ici, une seule fois,
 	# plutôt que de rechiffrer vers son certificat auto-signé interne.
@@ -28,7 +32,7 @@
 }
 
 {$OPENCTI_HOSTNAME} {
-	tls internal
+	tls {$CADDY_TLS:-internal}
 	# Le live stream d'OpenCTI est du SSE : Caddy ne tamponne pas les
 	# réponses en flux, rien à régler. Un nginx demanderait proxy_buffering off.
 	reverse_proxy opencti:8080

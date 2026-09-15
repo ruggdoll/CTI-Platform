@@ -389,12 +389,18 @@ services:
     environment:
       MISP_HOSTNAME: ${MISP_HOSTNAME:-}
       OPENCTI_HOSTNAME: ${OPENCTI_HOSTNAME:-}
+      # Vide : autorité locale. Renseigné par `make cert-manuel` avec les deux
+      # chemins d'un certificat public.
+      CADDY_TLS: ${CADDY_TLS:-}
     volumes:
       - {type: bind, source: ../proxy/Caddyfile, target: /etc/caddy/Caddyfile, read_only: true}
       # L'AUTORITÉ LOCALE vit ici : détruire ce volume force tous les clients à
       # refaire confiance à une nouvelle racine.
       - caddy_data:/data
       - caddy_config:/config
+      # Certificats publics éventuels, écrits par certbot dans le MÊME volume.
+      # En lecture seule : la façade les sert, elle ne les fabrique pas.
+      - {type: volume, source: certbot, target: /certs, read_only: true}
     networks: [default, misp]
 
 networks:
@@ -412,6 +418,8 @@ volumes:
     name: proxy_ac_locale
   caddy_config:
     name: proxy_config
+  certbot:
+    name: proxy_certificats
   esdata:
     name: opencti_bdd
   s3data:
