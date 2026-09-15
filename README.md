@@ -53,8 +53,8 @@ appartient au compte qui porte la plateforme. `make build` détecte le mode et
 dimensionne les deux piles sur la RAM réelle de la machine. Le mode rootful
 reste utilisable sans réglage particulier.
 
-`HOST` est **le** paramètre du déploiement : le nom (FQDN) ou l'IP par lequel
-les clients joindront la plateforme. `make build` enchaîne les neuf étapes et
+`HOST` — ou `DOMAINE` en mode façade — est **le** paramètre du déploiement :
+par quoi les clients joindront la plateforme. `make build` enchaîne ses étapes et
 **attend** entre elles — API MISP disponible, plateforme OpenCTI en ligne,
 socle ATT&CK complet — parce que l'ordre n'est pas interchangeable et qu'il ne
 doit pas reposer sur la mémoire de celui qui déploie :
@@ -62,6 +62,7 @@ doit pas reposer sur la mémoire de celui qui déploie :
 ```
 1. make init          les .env, alignés sur HOST
 2. make up            pile MISP            -> https://<HOST>
+   make proxy-up          façade HTTPS, en mode DOMAINE uniquement
 3. make venv          environnement Python
 4. make socle-misp    SOCLE MISP : galaxies, taxonomies, warninglists
 5. make opencti-up    pile OpenCTI + MITRE -> http://<HOST>:8080
@@ -200,12 +201,16 @@ types propres à OpenCTI (`media-content`, `channel`, `narrative`) — du STIX
 La plateforme ne moissonne rien et n'analyse rien. Ce qu'un outil
 d'alimentation doit savoir :
 
-L'adressage, c'est la plateforme qui l'émet — `make adressage` en donne
-l'aperçu, `make adressage ARGS=--secrets` le fragment `.env` à rediriger dans
-l'outil, et `make cle-automation ARGS=--env` le même fragment avec une clé MISP
-**dédiée**, qui survit à une rotation de la clé admin. Aller lire `opencti/.env` à la main ne vaut que si l'outil tourne sur
-la même machine ; dès que la plateforme est ailleurs, c'est cette commande qui
-fait foi.
+L'adressage, c'est la plateforme qui l'émet :
+
+- `make adressage` en donne l'aperçu, secrets masqués ;
+- `make adressage ARGS=--secrets` le fragment `.env` à rediriger dans l'outil ;
+- `make cle-automation ARGS=--env` le même fragment, mais avec une clé MISP
+  **dédiée** — portée par un compte de service, elle survit à la rotation de la
+  clé admin que `make misp-setup` provoque.
+
+Aller lire `opencti/.env` à la main ne vaut que si l'outil tourne sur la même
+machine. Dès que la plateforme est ailleurs, c'est cette commande qui fait foi.
 
 | Vers | Interface | Où trouver l'adressage |
 |---|---|---|
@@ -274,6 +279,10 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | état du socle ATT&CK et de la file d'ingestion | `make attack-status` |
 | rotation de la clé API MISP, réalignement de l'organisation | `make misp-setup` |
 | contrôle bout en bout | `make bridge-test` |
+| adressage à donner à un outil d'alimentation | `make adressage` |
+| clé MISP dédiée, qui survit à `misp-setup` | `make cle-automation` |
+| racine de l'autorité locale, à installer sur les clients | `make proxy-ca` |
+| certificat public, échéance | `make cert-manuel`, `make cert-etat` |
 | sauvegarde complète | `provisioning/backup_infra.sh` — volumes, montages liés, `.env`, dépôts ; conteneurs arrêtés |
 | arrêt propre, conteneurs conservés | `make stop-all` — ils repartent au démarrage suivant du démon |
 | arrêt, remise à zéro | `make down` / `make opencti-down` ; `make destroy` / `make opencti-destroy` (**perte totale**) |
@@ -292,6 +301,11 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | `provisioning/bridge_setup.py`, `bridge_test.py`, `selftest/` | câblage et contrôle bout en bout du pont |
 | `provisioning/taxii_check.py` | contrôle de la collection TAXII 2.1 livrée |
 | `provisioning/misp_org.py`, `backup_infra.sh` | alignement de l'organisation MISP, sauvegarde complète |
+| `provisioning/prepare_host.sh`, `rootless_setup.sh` | préparation d'un hôte neuf : tout ce qui exige root, puis le démon rootless du compte |
+| `provisioning/diag_rootless.sh` | diagnostic d'un hôte rootless — ne modifie rien |
+| `provisioning/adressage.py`, `misp_cle_automation.py` | ce qu'un outil d'alimentation doit connaître, et la clé dédiée pour s'en servir |
+| `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
+| `proxy/Caddyfile` | façade HTTPS à deux identités (`make build DOMAINE=…`) |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |
 
 ## Sécurité
@@ -300,8 +314,13 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 - Ne jamais committer de clé API, de mot de passe ni de jeton. Les outils
   Python ne codent aucune URL ni aucun jeton en dur : tout passe par
   `provisioning/_config.py`.
-- Le certificat livré par la pile MISP est auto-signé et porte `CN=localhost` :
-  poser un certificat au nom de `HOST` avant tout usage réel.
+- Le certificat livré par la pile MISP est auto-signé et porte `CN=localhost`.
+  Derrière la façade (`make build DOMAINE=…`), c'est elle qui porte le TLS —
+  autorité locale par défaut, certificat public par `make cert-manuel`. Sans
+  façade, poser un certificat au nom de `HOST` avant tout usage réel.
+- Le déploiement vise un démon Docker **rootless** : pas de groupe
+  root-équivalent, et le socket appartient au seul compte qui porte la
+  plateforme.
 - Le dépôt ne contient aucune donnée de renseignement : seuls les référentiels
   publics (galaxies, taxonomies et warninglists MISP, MITRE ATT&CK, annexes
   STIX de VIGINUM) sont posés à la construction.
