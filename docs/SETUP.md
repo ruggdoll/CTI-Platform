@@ -196,10 +196,19 @@ MariaDB, qui doit vider son buffer pool, et pour Elasticsearch, qui doit
 `make autostart` (posé par `make build`, étape 9/9) installe une unité systemd
 utilisateur ordonnée **après** le démon — donc arrêtée **avant** lui — dont
 l'`ExecStop` lance `make stop-all` pendant que dockerd répond encore.
-`AUTOSTART_TIMEOUT` règle le délai accordé (300 s par défaut) ;
-`prepare_host.sh` porte en parallèle le `TimeoutStopSec` de
-`user@<uid>.service` à 300 s, sans quoi le plafond de 2 minutes du gestionnaire
-de session s'appliquerait quand même.
+Deux délais, à ne pas confondre — les confondre revient à croire le problème
+réglé alors qu'il ne l'est pas :
+
+| Réglage | Ce qu'il borne | Défaut |
+|---|---|---|
+| `STOP_TIMEOUT` | le sursis de **chaque conteneur** avant son SIGKILL, passé à `compose stop -t` | 120 s |
+| `AUTOSTART_TIMEOUT` | la durée **totale** de l'arrêt, `TimeoutStopSec` de l'unité | 300 s |
+| drop-in `user@<uid>.service` | le plafond du gestionnaire de session, posé par `prepare_host.sh` | 300 s |
+
+Sans `STOP_TIMEOUT`, `compose stop` n'accorde que **10 secondes** par conteneur
+et MariaDB est tuée en pleine écriture — quels que soient les deux autres
+réglages. Sans le drop-in, le gestionnaire de session serait tué au bout de
+2 minutes, emportant l'arrêt en cours.
 
 Le redémarrage automatique n'est pas perdu pour autant : Docker n'ignore la
 politique `restart` d'un conteneur arrêté explicitement que **jusqu'au

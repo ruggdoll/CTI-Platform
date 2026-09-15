@@ -82,6 +82,16 @@ DEFAULT_PASSWORD ?= MyP@ssword42!
 # user@<uid>.service, que prepare_host.sh porte à 300 s.
 AUTOSTART_TIMEOUT ?= 300
 
+# Délai accordé à CHAQUE conteneur pour s'arrêter de lui-même avant le SIGKILL.
+# `docker compose stop` n'en accorde que 10 par défaut : trop peu pour MariaDB,
+# qui doit vider son buffer pool, et pour Elasticsearch, qui écrit son translog.
+# Le TimeoutStopSec de l'unité systemd ne corrige PAS cela — il plafonne la
+# durée TOTALE de l'arrêt, pas le sursis de chaque conteneur. Sans ce -t, le
+# journal affiche « Container failed to exit within 10s of signal 15 - using
+# the force » et l'unité d'arrêt propre ne sert à rien (constaté au
+# redémarrage du 2026-09-15).
+STOP_TIMEOUT ?= 120
+
 # Dimensionnement mémoire, calculé à la création des .env. Les valeurs des
 # .env.example visaient une machine de 31 Go dédiée à MISP ; ici les DEUX piles
 # cohabitent (MariaDB + Elasticsearch + OpenCTI + workers + connecteurs), donc
@@ -167,7 +177,7 @@ up: $(ENV_FILE) ## Démarre la stack MISP (build/pull au 1er lancement)
 
 .PHONY: stop
 stop: ## ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (repartent au boot)
-	$(RUN) '$(COMPOSE) stop'
+	$(RUN) '$(COMPOSE) stop -t $(STOP_TIMEOUT)'
 
 .PHONY: down
 down: ## Arrête la stack (conserve les volumes)
@@ -277,10 +287,19 @@ bridge-test: ## contrôle bout en bout : crée un rapport DANS OpenCTI, le cherc
 
 .PHONY: opencti-down
 opencti-stop: ## ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CONSERVÉS
-	$(RUN) '$(OCTI) --profile feeds stop'
+	$(RUN) '$(OCTI) --profile feeds stop -t $(STOP_TIMEOUT)'
 
 .PHONY: stop-all
-stop-all: opencti-stop stop ## ARRÊT PROPRE des deux piles, OpenCTI d'abord (il consomme MISP)
+stop-all: ## ARRÊT PROPRE des deux piles, OpenCTI d'abord (il consomme MISP)
+	@# CHEMIN D'ARRÊT : il doit aboutir même si une pile bronche. Un conteneur
+	@# qui s'est déjà arrêté seul fait sortir `compose stop` en erreur
+	@# (« cannot stop container: … is not running ») ; quand les deux piles
+	@# étaient des PRÉREQUIS make, cette erreur interrompait la cible et la
+	@# pile MISP n'était jamais arrêtée du tout. Les `-` sont donc délibérés :
+	@# on veut arrêter la seconde pile même si la première a protesté, et
+	@# rendre la main en succès pour que systemd ne compte pas l'unité en échec.
+	-$(RUN) '$(OCTI) --profile feeds stop -t $(STOP_TIMEOUT)'
+	-$(RUN) '$(COMPOSE) stop -t $(STOP_TIMEOUT)'
 	@echo "  les deux piles sont arrêtées ; les conteneurs existent toujours et"
 	@echo "  repartiront au prochain démarrage du démon (restart: always)."
 
