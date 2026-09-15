@@ -53,6 +53,18 @@ attendre "API MISP" 900 bash -c \
   "curl -sk -H 'Authorization: $KEY' -H 'Accept: application/json' \
    $SONDE_MISP/organisations/view/1 | grep -q '\"Organisation\"'"
 
+# La façade HTTPS démarre ICI, pas avec le reste de la pile OpenCTI : les
+# outils de provisionnement joignent MISP par son URL PUBLIQUE, qui ne répond
+# que par elle dès lors que les piles sont repliées sur la boucle locale.
+# `compose up -d proxy` crée le réseau du projet OpenCTI au passage ; le reste
+# de la pile suivra à l'étape 5/9.
+if grep -qsE '^MISP_HOSTNAME=.+' opencti/.env; then
+  etape "2 bis/9  Façade HTTPS"
+  make --no-print-directory proxy-up
+  attendre "MISP par son nom public ($URL_MISP)" 300 bash -c \
+    "curl -sk -o /dev/null -w '%{http_code}' $URL_MISP/users/login | grep -qE '200|302'"
+fi
+
 etape "3/9  Environnement Python"
 [ -x "$PY" ] || make --no-print-directory venv
 

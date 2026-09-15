@@ -282,6 +282,11 @@ misp-setup: ## ROTATION : régénère la clé API admin, la repose dans les .env
 	./.venv/bin/python provisioning/misp_org.py
 	@echo "→ ensuite : make opencti-up puis make bridge-setup"
 
+.PHONY: proxy-up
+proxy-up: ## DÉMARRE la façade HTTPS seule (crée le réseau OpenCTI au passage)
+	@grep -qsE '^MISP_HOSTNAME=.+' "$(OCTI_ENV)" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 0; }
+	$(RUN) '$(OCTI) up -d proxy'
+
 .PHONY: proxy-ca
 proxy-ca: ## EXPORTE la racine de l'autorité locale, à installer une fois sur chaque client
 	@mkdir -p dist
