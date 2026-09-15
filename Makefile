@@ -78,6 +78,17 @@ endif
 HOST ?= $(shell hostname -f 2>/dev/null || echo localhost)
 OCTI_ENV := opencti/.env
 
+# URL publiques affichées. En mode proxy, OpenCTI n'est plus sur un port mais
+# sur sa propre identité en 443 — l'annoncer faux enverrait l'exploitant sur
+# une adresse morte. Récursives (=) : HOST et les noms sont définis au-dessus.
+ifneq ($(DOMAINE),)
+URL_MISP = https://$(MISP_HOSTNAME)
+URL_OCTI = https://$(OPENCTI_HOSTNAME)
+else
+URL_MISP = https://$(HOST)
+URL_OCTI = http://$(HOST):8080
+endif
+
 # Adresse que les CONTENEURS doivent viser pour joindre le nom public de la
 # plateforme (`extra_hosts` des deux compose). Deux mondes, deux valeurs :
 #   - rootful  : `host-gateway` désigne l'hôte depuis un conteneur ;
@@ -207,8 +218,8 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	@echo "  Mémoire ($(MEM_MO) Mo) : buffer pool MariaDB $(INNODB_POOL), heap Elasticsearch $(ELASTIC_MEM)"
 	@echo "  Cible extra_hosts des conteneurs (CTI_HOST_TARGET) : $(HOST_TARGET)$(if $(ROOTLESS), — démon rootless détecté,)"
 	@case "$(HOST_TARGET)" in 127.*) echo "  ATTENTION : CTI_HOST_TARGET est une adresse de loopback. Un conteneur n'y joindra pas l'hôte."; echo "  Corriger /etc/hosts (le nom public doit pointer sur l'IP du LAN) ou passer HOST_TARGET=<ip> explicitement.";; esac
-	@echo "→ MISP    : https://$(HOST)      (admin@… / $(DEFAULT_PASSWORD))"
-	@echo "→ OpenCTI : http://$(HOST):8080  (admin@… / $(DEFAULT_PASSWORD))"
+	@echo "→ MISP    : $(URL_MISP)      (admin@… / $(DEFAULT_PASSWORD))"
+	@echo "→ OpenCTI : $(URL_OCTI)  (admin@… / $(DEFAULT_PASSWORD))"
 	@echo "  La clé API admin MISP est propagée dans $(OCTI_ENV) (MISP_KEY). Un outil d'alimentation"
 	@echo "  y lit MISP_KEY et OPENCTI_ADMIN_TOKEN — ou reçoit une clé d'automation MISP dédiée."
 	@echo "  Suite : make up -> make opencti-up -> make bridge-setup"
