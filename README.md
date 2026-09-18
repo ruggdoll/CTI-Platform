@@ -185,7 +185,8 @@ utilisées. Leur nombre suit les versions amont de MISP (125 warninglists et
 compte.
 
 **L'ordre compte.** Au premier démarrage, quatre connecteurs de masse lancés
-ensemble saturent une machine à 4 cœurs et l'ATT&CK arrive au compte-gouttes.
+ensemble saturent une machine modeste — deux cœurs physiques suffisent à peine
+à porter les deux piles — et l'ATT&CK arrive au compte-gouttes.
 `make opencti-up` ne démarre donc que le cœur, MITRE et les ponts ; les flux
 externes attendent `make opencti-feeds`. `make attack-status` dit où en est le
 socle et refuse de vous laisser croire qu'il est prêt quand il ne l'est pas.

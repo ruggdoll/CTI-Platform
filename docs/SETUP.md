@@ -377,3 +377,34 @@ Une suppression **ne se propage pas** : retirer un bundle de l'outillage
 d'alimentation ne supprime pas le rapport côté serveur. Les suppressions
 restent des gestes manuels, à faire dans l'interface ou par l'API, et à
 consigner.
+
+**L'import est additif.** Republier une version allégée d'un bundle n'ôte rien
+de la base : une valeur retirée du bundle reste portée par son rapport tant
+qu'elle n'a pas été **détachée explicitement**, puis supprimée si plus aucun
+conteneur ne la porte. Sans cette seconde étape, toute correction laisse un
+résidu que rien ne signale.
+
+### Vider la plateforme : détruire les volumes, pas supprimer objet par objet
+
+Mesure du 2026-09-19 sur cette instance : la suppression d'objets OpenCTI par
+l'API tient **2,7 objets par seconde** — relevé sur 750 suppressions réelles.
+Pour un contenu courant de quelques dizaines de milliers d'indicateurs et
+d'observables, cela représente **plusieurs heures**, pendant lesquelles la
+machine est saturée et l'index Elasticsearch se fragmente.
+
+`make opencti-destroy` fait le même travail en **une trentaine de secondes**, et
+rend une instance réellement neuve.
+
+**Donc : pour repartir de zéro, on détruit et on relève ; on ne vide pas.** La
+suppression unitaire par l'API reste l'outil de la correction ciblée — un
+doublon, un objet fautif, quelques dizaines de valeurs à détacher. Le seul coût
+de la destruction est le rechargement des socles, qui est automatique : le
+connecteur MITRE réingère ATT&CK, le connecteur CISA réingère le KEV, sans
+supervision.
+
+Ordre de grandeur à ne pas confondre, côté MISP : la suppression de 724 events
+portant 63 236 attributs a pris **205 secondes**, sans échec. L'API MISP
+supprime un event entier d'un coup, là où OpenCTI supprime objet par objet.
+
+Après une destruction, penser à **recréer la collection TAXII** : elle
+disparaît avec l'instance.

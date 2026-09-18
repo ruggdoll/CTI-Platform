@@ -1,8 +1,8 @@
 # Livraison — ce que reçoit un client, et comment
 
 Le produit est un **flux que le client ingère chez lui** (OpenCTI, MISP ou tout
-client TAXII 2.1), jamais un accès à cette instance (4 cœurs, ~400 entités/min,
-non mutualisable). Trois livrables, tous produits depuis les mêmes bundles
+client TAXII 2.1), jamais un accès à cette instance (bicœur hyperthreadé,
+~400 entités/min mesurées à l'ingestion, non mutualisable). Trois livrables, tous produits depuis les mêmes bundles
 STIX importés dans OpenCTI par l'outillage d'alimentation (un `Report` par publication, étiqueté `export-misp`).
 
 ## 1. Abonnement : collection TAXII 2.1 (OpenCTI)
