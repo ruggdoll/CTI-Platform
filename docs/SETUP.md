@@ -295,6 +295,22 @@ passer à `1`.
 L'autorité vit dans le volume `proxy_ac_locale` : le détruire oblige tous les
 clients à refaire confiance à une nouvelle racine.
 
+**`make destroy` détruit ce volume.** Caddy en régénère une au redémarrage, et
+`dist/ac-locale.crt` comme le magasin système du poste gardent alors l'ancienne
+— silencieusement, jusqu'à ce qu'un navigateur crie. Constaté le 2026-09-19 :
+racine servie émise à 23:50 la veille, racine approuvée par le poste datée de
+trois jours plus tôt, empreintes différentes. Après toute reconstruction :
+
+```bash
+make proxy-ca                     # ré-exporte la racine RÉELLEMENT servie
+openssl x509 -in dist/ac-locale.crt -noout -fingerprint -sha256
+sudo cp dist/ac-locale.crt /usr/local/share/ca-certificates/cti-platform.crt
+sudo update-ca-certificates       # Firefox tient son propre magasin, à refaire à part
+```
+
+Comparer les deux empreintes plutôt que supposer : c'est le même principe que
+partout ailleurs ici, on lit l'état, on ne le déduit pas.
+
 ### Un certificat public, sans exposer la plateforme
 
 Avec un domaine enregistré dont les noms n'existent pas sur Internet — le cas
