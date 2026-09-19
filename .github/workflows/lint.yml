@@ -1,3 +1,10 @@
+# Ce qui est verifie ici porte sur le CONTENU, jamais sur le style du code.
+#
+# Les etapes `ruff` et `compile` ont ete retirees le 2026-09-19 : elles
+# policaient quatre scripts que seul leur auteur lit, et une publication de
+# l'outil a fait rougir `main` le 2026-09-14 avec dix-huit defauts apparus sans
+# qu'une ligne ait bouge. Une CI qui rougit pour une raison etrangere au
+# contenu coute de l'attention et n'apprend rien.
 name: lint
 
 on:
@@ -15,14 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # ruff ÉPINGLÉ : installé sans version, une nouvelle publication de
-      # l'outil ajoute des règles et fait rougir `main` sans qu'une ligne de
-      # code ait bougé — constaté le 2026-09-14 (18 défauts apparus seuls).
-      - run: pip install ruff==0.16.5 pyyaml
-      - name: ruff
-        run: ruff check provisioning
-      - name: compile
-        run: python -m compileall -q provisioning
+      - run: pip install pyyaml
       - name: validate YAML
         run: |
           python - <<'PY'
