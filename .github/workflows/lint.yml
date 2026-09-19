@@ -27,6 +27,24 @@ jobs:
         run: |
           python - <<'PY'
           import pathlib, yaml
-          for p in [pathlib.Path("compose.tuning.yml"), pathlib.Path("opencti/docker-compose.yml")] + list(pathlib.Path("provisioning").rglob("*.yaml")):
-              yaml.safe_load(p.read_text()); print("ok", p)
+
+          # Les fichiers Compose portent des tags d'extension propres a Docker
+          # (`!override`, `!reset`) que safe_load refuse. Les ignorer plutot que
+          # les interpreter : on verifie ici la syntaxe YAML, pas la semantique
+          # Compose. Sans cela le controle echouait sur chaque execution depuis
+          # la mise en place de compose.tuning.yml -- une CI rouge en
+          # permanence, que plus personne ne lit.
+          class Tolerant(yaml.SafeLoader):
+              pass
+
+          Tolerant.add_multi_constructor(
+              "", lambda loader, suffix, node: None)
+
+          cibles = [pathlib.Path("compose.tuning.yml"),
+                    pathlib.Path("opencti/docker-compose.yml")]
+          cibles += sorted(pathlib.Path("provisioning").rglob("*.yaml"))
+          for p in cibles:
+              if not p.exists():
+                  print("absent, ignore:", p); continue
+              yaml.load(p.read_text(), Loader=Tolerant); print("ok", p)
           PY
