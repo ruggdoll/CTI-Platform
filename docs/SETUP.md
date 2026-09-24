@@ -356,6 +356,34 @@ En échange : plus aucune racine à distribuer, les navigateurs font confiance
 nativement, et `make adressage` émet `MISP_VERIFY_SSL=1` de lui-même puisqu'il
 constate un certificat public.
 
+## 5 quater. CISO-Assistant (GRC), optionnelle
+
+Une troisième pile, indépendante — [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community)
+(risques, conformité, audits) — peut rejoindre la façade, sous sa propre
+identité. Elle n'échange aucune donnée avec MISP ou OpenCTI : ni pont, ni
+socle, ni adressage partagé ; seul le certificat mkcert de la façade lui est
+commun.
+
+Elle n'existe qu'en mode façade (`DOMAINE=…`). `make init DOMAINE=<domaine>`
+écrit `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` et l'inclut
+dans le certificat mkcert (3e SAN). Le routeur Traefik correspondant
+(`proxy/dynamic/dynamic.yml`, un gabarit Go) ne se rend que si cette variable
+est non vide — la retirer du fichier suffit à désactiver la façade CISO sans
+toucher au reste.
+
+```bash
+make ciso-up            # démarre la pile (backend, huey, frontend, qdrant)
+make ciso-logs           # premier démarrage LENT : ~200 migrations Django,
+                          #   10-15 min constatées sur une machine déjà chargée
+                          #   par MISP+OpenCTI — healthcheck réglé en conséquence
+make ciso-superuser      # une fois la pile en ligne : premier compte admin
+```
+
+Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-destroy`
+les détruit avec les conteneurs (**perte totale**), séparément de `make
+destroy`/`make opencti-destroy`. `make stop-all` l'arrête proprement avec les
+deux autres piles si elle est présente.
+
 ## 6. Mise à jour de MISP
 
 ```bash

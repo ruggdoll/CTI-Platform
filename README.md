@@ -96,15 +96,17 @@ port :
 |---|---|
 | `https://misp.<domaine>` | l'interface MISP |
 | `https://opencti.<domaine>` | l'interface OpenCTI |
+| `https://ciso.<domaine>` | CISO-Assistant (GRC), si démarré — voir plus bas |
 
-Les deux piles n'écoutent alors que sur `127.0.0.1` ; la façade tient 80 et 443
+Les piles n'écoutent alors que sur `127.0.0.1` ; la façade tient 80 et 443
 et les joint par le réseau Docker. Elle n'existe **que pour l'extérieur** : les
 connecteurs, les workers et le pont MISP passent par les noms de conteneurs et
 ne la traversent jamais.
 
 Le TLS est assuré par un certificat **mkcert** (autorité locale posée sur
 l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build DOMAINE=…` le
-génère pour les deux noms. Contrairement à un `openssl` maison, l'autorité
+génère pour les noms actifs (MISP et OpenCTI, plus CISO-Assistant dès que
+`CISO_HOSTNAME` est renseigné). Contrairement à un `openssl` maison, l'autorité
 n'a besoin d'être approuvée qu'**une fois** par poste client — les
 régénérations ultérieures du certificat (`make proxy-cert`) restent
 approuvées sans nouveau geste, tant que la racine mkcert de l'hôte ne change
@@ -164,6 +166,33 @@ geste par poste client une fois (autorité locale) et un geste sur le serveur
 tous les trois mois (certificat public). Détails dans
 [`docs/SETUP.md`](docs/SETUP.md) : l'architecture est identique dans les deux
 cas, seule la fabrique des certificats change.
+
+## CISO-Assistant (GRC) — optionnelle, à côté
+
+`make ciso-up` démarre une troisième pile, [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community)
+(risques, conformité, audits), derrière la même façade HTTPS que MISP et
+OpenCTI, sous sa propre identité (`https://ciso.<domaine>`). Elle n'échange
+aucune donnée avec les deux autres piles : ni pont, ni socle commun, ni
+adressage partagé.
+
+Elle n'existe **qu'en mode façade** (`DOMAINE=…`) et **que si `CISO_HOSTNAME`
+est renseigné** dans `ciso-assistant/.env` — `make init DOMAINE=<domaine>`
+l'y écrit par défaut (`ciso.<domaine>`), sans quoi ni le routeur Traefik ni la
+cible `ciso-up` ne s'activent :
+
+```bash
+make ciso-up            # démarre CISO-Assistant (premier démarrage LENT :
+                         #   ~200 migrations Django, 10-15 min constatées)
+make ciso-logs           # suit la progression
+make ciso-superuser      # crée le premier compte admin, une fois la pile en ligne
+```
+
+| Besoin | Commande |
+|---|---|
+| démarrer | `make ciso-up` |
+| premier compte admin | `make ciso-superuser` |
+| journaux | `make ciso-logs` |
+| arrêt, volumes détruits (base, Qdrant) | `make ciso-destroy` (**perte totale**) |
 
 ## Le socle — à poser avant tout flux
 
@@ -310,7 +339,8 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | `provisioning/diag_rootless.sh` | diagnostic d'un hôte rootless — ne modifie rien |
 | `provisioning/adressage.py`, `misp_cle_automation.py` | ce qu'un outil d'alimentation doit connaître, et la clé dédiée pour s'en servir |
 | `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
-| `proxy/traefik.yml`, `proxy/dynamic.yml` | façade HTTPS à deux identités (`make build DOMAINE=…`) |
+| `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build DOMAINE=…`) |
+| `ciso-assistant/docker-compose.yml` | pile CISO-Assistant (GRC), optionnelle (`make ciso-up`) |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |
 
 ## Sécurité
