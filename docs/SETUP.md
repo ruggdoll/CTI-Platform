@@ -254,12 +254,11 @@ session, donc le démon, qui relance tout ce qui est en `restart: always`.
 `make autostart-off` retire l'unité. `make stop-all` s'utilise aussi à la main
 avant une intervention.
 
-## 5 ter. Trois identités derrière un proxy inverse
+## 5 ter. Deux identités derrière un proxy inverse
 
 Par défaut, chaque pile publie ses propres ports : MISP en 443, OpenCTI en
 8080, sous un seul nom. `make build DOMAINE=<domaine>` met à la place une
-**façade HTTPS** devant les trois (MISP, OpenCTI, CISO-Assistant), sous trois
-identités :
+**façade HTTPS** devant les deux, sous deux identités :
 
 ```bash
 sudo provisioning/prepare_host.sh --user cti-platform --domaine here.local
@@ -271,13 +270,16 @@ make proxy-ca        # exporte la racine à installer sur les postes clients
 |---|---|
 | `https://misp.here.local` | la pile MISP |
 | `https://opencti.here.local` | la plateforme OpenCTI |
-| `https://ciso.here.local` | CISO-Assistant (GRC) — [détail plus bas](#5-quater-ciso-assistant-grc-construite-avec-les-deux-autres) |
 
-Les piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI en
-8080 ; CISO-Assistant ne publie aucun port, façade obligatoire) ; la façade
-tient 80 et 443 et les joint par le réseau Docker. Elle est un service de la
-pile OpenCTI sous le profil `proxy`, activé automatiquement dès que
-`MISP_HOSTNAME` est renseigné : toute cible `opencti-*` l'embarque, même
+Un 3e nom, `https://ciso.here.local`, peut rejoindre la même façade si
+[CISO-Assistant](#5-quater-ciso-assistant-un-produit-séparé) est démarrée à
+part — voir cette section : ce n'est ni une pile de cette plateforme ni
+quelque chose que `make build` construit.
+
+Les deux piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI
+en 8080) ; la façade tient 80 et 443 et les joint par le réseau Docker. Elle est
+un service de la pile OpenCTI sous le profil `proxy`, activé automatiquement dès
+que `MISP_HOSTNAME` est renseigné : toute cible `opencti-*` l'embarque, même
 lancée seule des mois plus tard.
 
 **La façade n'existe que pour l'extérieur.** Les échanges internes — les six
@@ -362,39 +364,55 @@ En échange : plus aucune racine à distribuer, les navigateurs font confiance
 nativement, et `make adressage` émet `MISP_VERIFY_SSL=1` de lui-même puisqu'il
 constate un certificat public.
 
-## 5 quater. CISO-Assistant (GRC), construite avec les deux autres
+## 5 quater. CISO-Assistant, un produit séparé
 
-Une troisième pile, indépendante — [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community)
-(risques, conformité, audits) — tourne derrière la façade, sous sa propre
-identité. Elle n'échange aucune donnée avec MISP ou OpenCTI : ni pont, ni
-socle, ni adressage partagé ; seul le certificat mkcert de la façade lui est
-commun.
+Ce dépôt embarque aussi le compose de
+[CISO-Assistant](https://github.com/intuitem/ciso-assistant-community) (GRC :
+risques, conformité, audits), disponible derrière la même façade par
+confort — **ce n'est pas une pile de cette plateforme**. Elle n'échange
+aucune donnée avec MISP ou OpenCTI (ni pont, ni socle, ni adressage
+partagé), et `make build`/`make destroy`/`provisioning/backup_infra.sh` ne
+la touchent jamais.
+
+**Pourquoi la distinction compte, pas juste une histoire de vocabulaire** :
+MISP et OpenCTI partagent un socle et un flux de données réel ; CISO-Assistant
+n'a aucun de ces deux liens. Sa donnée (registre des risques, constats
+d'audit) est souvent la plus sensible des trois, son public dépasse
+fréquemment l'équipe CTI, et ses exigences de rétention n'ont rien à voir
+avec un labo explicitement rejouable depuis ses sources. La faire construire
+et détruire par le même cycle de vie qu'un labo CTI lui ferait hériter d'un
+rayon d'explosion qui n'est pas le sien.
 
 Elle n'existe qu'en mode façade (`DOMAINE=…`) : sa pile amont ne publie aucun
 port, elle n'est joignable que par nom derrière Traefik — une contrainte de
-l'image, pas un réglage de ce dépôt. `make init DOMAINE=<domaine>` écrit donc
-toujours `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` — couvert
-d'office par le certificat joker de la façade (`*.<domaine>`, pas un nom à y
-ajouter) —, et `make build DOMAINE=<domaine>` la démarre avec les deux autres,
-à l'étape 9/10 — aucun geste séparé à retenir.
-Le routeur Traefik correspondant (`proxy/dynamic/dynamic.yml`, un gabarit Go)
-ne se rend que si `CISO_HOSTNAME` est non vide — le retirer du fichier suffit
-à désactiver la façade CISO sans toucher au reste ; `make ciso-up` reste
-disponible seule pour rejouer le démarrage ou l'ajouter après coup à une
-plateforme déjà construite :
+l'image, pas un réglage de ce dépôt. `make init DOMAINE=<domaine>` écrit
+`CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` (couvert d'office
+par le certificat joker de la façade), mais rien ne la démarre toute seule —
+`make ciso-up` le fait, volontairement, à part. Le routeur Traefik
+correspondant (`proxy/dynamic/dynamic.yml`, un gabarit Go) ne se rend que si
+`CISO_HOSTNAME` est non vide — le retirer du fichier suffit à désactiver la
+façade CISO sans toucher au reste.
 
 ```bash
-make ciso-up             # (re)démarre la pile (backend, huey, frontend, qdrant)
-make ciso-logs            # premier démarrage LENT : ~200 migrations Django,
-                           #   10-15 min constatées sur une machine déjà chargée
-                           #   par MISP+OpenCTI — healthcheck réglé en conséquence
-make ciso-superuser       # une fois la pile en ligne : premier compte admin
+make ciso-up              # démarre la pile (backend, huey, frontend, qdrant)
+make ciso-logs             # premier démarrage LENT : ~200 migrations Django,
+                            #   10-15 min constatées sur une machine déjà chargée
+                            #   par MISP+OpenCTI — healthcheck réglé en conséquence
+make ciso-superuser        # une fois la pile en ligne : premier compte admin
 ```
 
 Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-destroy`
-les détruit avec les conteneurs (**perte totale**), séparément de `make
-destroy`/`make opencti-destroy`. `make stop-all` l'arrête proprement avec les
-deux autres piles si elle est présente ; `make ciso-ps` en donne l'état.
+les détruit avec les conteneurs (**perte totale**), jamais entraînés par
+`make destroy`/`make opencti-destroy` — ni par `provisioning/backup_infra.sh`,
+qui les exclut explicitement (`ciso_*`) : sa politique de sauvegarde/rétention
+se définit séparément. `make stop-all` l'arrête proprement avec les deux
+autres piles si elle est présente (simple courtoisie à l'extinction, pas un
+couplage de cycle de vie) ; `make ciso-ps` en donne l'état.
+
+Pour une séparation complète (hôte, réseau, identité TLS dédiés plutôt que le
+certificat joker partagé), sortez `ciso-assistant/` dans son propre
+dépôt/VM — ce dépôt se contente de ne plus la coupler de force à la
+plateforme CTI.
 
 ## 6. Mise à jour de MISP
 

@@ -41,8 +41,9 @@ PROFIL_PROXY := $(shell grep -qsE '^MISP_HOSTNAME=.+' $(CURDIR)/opencti/.env && 
 OCTI := docker compose -p $(OCTI_PROJECT) --project-directory $(CURDIR)/opencti \
 	--env-file $(CURDIR)/opencti/.env $(PROFIL_PROXY) -f $(CURDIR)/opencti/docker-compose.yml
 
-# CISO-Assistant : 3e pile, indépendante (pas de profil, pas de connecteur
-# croisé) — comme MISP et OpenCTI, un projet compose à elle seule.
+# CISO-Assistant : produit SÉPARÉ (GRC), pas une pile de cette plateforme —
+# voir CISO_HOSTNAME plus bas. Son propre projet compose, jamais dans le
+# périmètre de make build/destroy/backup_infra.sh.
 CISO := docker compose -p $(CISO_PROJECT) --project-directory $(CURDIR)/ciso-assistant \
 	--env-file $(CURDIR)/ciso-assistant/.env -f $(CURDIR)/ciso-assistant/docker-compose.yml
 
@@ -79,10 +80,12 @@ DOMAINE ?=
 ifneq ($(DOMAINE),)
 MISP_HOSTNAME    ?= misp.$(DOMAINE)
 OPENCTI_HOSTNAME ?= opencti.$(DOMAINE)
-# CISO-Assistant (GRC) : 3e identité, à côté des deux autres, sans échange de
-# données avec elles. `make build DOMAINE=…` la construit avec les deux
-# autres ; `make ciso-up` reste disponible seule (rejeu, façade ajoutée après
-# coup sur une plateforme déjà construite).
+# CISO-Assistant (GRC) : produit SÉPARÉ de cette plateforme, pas une 3e pile
+# du même ensemble — aucun échange de données avec MISP/OpenCTI, un public
+# souvent plus large (audit, direction) et des exigences de rétention
+# différentes d'un labo CTI. Elle ne partage que la façade, par confort :
+# `make build` ne la construit JAMAIS ; `make ciso-up` la démarre seule,
+# volontairement, quand on le décide.
 CISO_HOSTNAME    ?= ciso.$(DOMAINE)
 HOST             := $(MISP_HOSTNAME)
 endif
@@ -274,7 +277,7 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	@if [ -n "$(DOMAINE)" ]; then \
 	  if [ -f "$(CISO_ENV)" ]; then echo "  $(CISO_ENV) existe déjà — inchangé."; else \
 	    printf '%s\n' "CISO_HOSTNAME=$(CISO_HOSTNAME)" > "$(CISO_ENV)"; \
-	    echo "  $(CISO_ENV) généré — 'make build' la démarrera avec les deux autres piles ('make ciso-up' seule aussi)"; \
+	    echo "  $(CISO_ENV) généré — produit séparé, PAS construit par 'make build' : 'make ciso-up' pour la démarrer"; \
 	  fi; \
 	fi
 	@if [ -n "$(DOMAINE)" ]; then \
