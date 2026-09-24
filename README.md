@@ -197,11 +197,8 @@ contrainte de l'image, pas un choix de ce dépôt. `make init` prépare
 rien ne la démarre toute seule :
 
 ```bash
-make ciso-up             # démarre CISO-Assistant, volontairement, à part —
-                          #   premier démarrage LENT : ~200 migrations Django,
-                          #   10-15 min constatées, en arrière-plan
-make ciso-logs            # suit la progression
-make ciso-superuser       # crée le premier compte admin, une fois la pile en ligne
+make ciso-up   # premier démarrage LENT : ~200 migrations Django,
+               #   10-15 min constatées, en arrière-plan
 ```
 
 | Besoin | Commande |

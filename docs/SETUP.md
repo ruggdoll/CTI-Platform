@@ -347,12 +347,14 @@ correspondant (`proxy/dynamic/dynamic.yml`, un gabarit Go) ne se rend que si
 façade CISO sans toucher au reste.
 
 ```bash
-make ciso-up              # démarre la pile (backend, huey, frontend, qdrant)
-make ciso-logs             # premier démarrage LENT : ~200 migrations Django,
-                            #   10-15 min constatées sur une machine déjà chargée
-                            #   par MISP+OpenCTI — healthcheck réglé en conséquence
-make ciso-superuser        # une fois la pile en ligne : premier compte admin
+make ciso-up   # démarre la pile (backend, huey, frontend, qdrant) — premier
+               #   démarrage LENT : ~200 migrations Django, 10-15 min
+               #   constatées sur une machine déjà chargée par MISP+OpenCTI
+               #   (healthcheck réglé en conséquence)
 ```
+
+Puis, une fois la pile en ligne : `make ciso-superuser` (interactif, premier
+compte admin) ; `make ciso-logs` pour suivre la progression au premier plan.
 
 Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-down`
 l'arrête en les conservant, `make ciso-destroy` les détruit avec les
