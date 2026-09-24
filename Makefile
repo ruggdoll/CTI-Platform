@@ -191,7 +191,7 @@ build: ## CONSTRUIT TOUTE LA PLATEFORME dans le bon ordre — make build HOST=<f
 # bloque un `make init`/`build` sans terminal (constaté le 2026-09-24). Seule
 # une valeur explicite ("none", n'appartenant à aucun magasin réel) coupe tout.
 .PHONY: init
-init: ## Crée les .env des deux piles avec des secrets aléatoires — make init HOST=<fqdn|ip>
+init: # Crée les .env des deux piles avec des secrets aléatoires — make init HOST=<fqdn|ip>
 	@if [ -z "$(DOMAINE)" ] && [ "$(HOST)" != "localhost" ] && ! echo '$(HOST)' | grep -q '\.'; then \
 	  echo "  ATTENTION : HOST=$(HOST) ne contient pas de point — ni FQDN, ni IP, ni 'localhost'."; \
 	  echo "    Si c'est un nom de machine local (résolu par /etc/hosts, NetBIOS…), vos clients"; \
@@ -299,7 +299,7 @@ up: $(ENV_FILE) ## Démarre la stack MISP (build/pull au 1er lancement)
 	@echo "MISP démarre… suivre avec 'make logs'. Prêt quand le healthcheck misp-core passe."
 
 .PHONY: stop
-stop: ## ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (repartent au boot)
+stop: # ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (repartent au boot)
 	$(RUN) '$(COMPOSE) stop -t $(STOP_TIMEOUT)'
 
 .PHONY: down
@@ -347,19 +347,19 @@ destroy: ## Arrête, supprime les volumes ET l'état monté en bind (perte total
 	@echo "état MISP purgé (volumes + configs/logs/files/ssl/gnupg)"
 
 .PHONY: logs
-logs: ## Suit les logs de misp-core
+logs: # Suit les logs de misp-core
 	$(RUN) '$(COMPOSE) logs -f misp-core'
 
 .PHONY: ps
-ps: ## État des conteneurs
+ps: # État des conteneurs
 	$(RUN) '$(COMPOSE) ps'
 
 .PHONY: shell
-shell: ## Shell dans le conteneur misp-core
+shell: # Shell dans le conteneur misp-core
 	$(RUN) '$(COMPOSE) exec misp-core bash'
 
 .PHONY: socle-misp
-socle-misp: ## SOCLE MISP : galaxies, taxonomies, warninglists, modèles d'objets (avant tout flux)
+socle-misp: # SOCLE MISP : galaxies, taxonomies, warninglists, modèles d'objets (avant tout flux)
 	./.venv/bin/python provisioning/misp_socle.py $(ARGS)
 
 # Adresse de contact du compte Let's Encrypt (avis d'expiration). Obligatoire
@@ -367,7 +367,7 @@ socle-misp: ## SOCLE MISP : galaxies, taxonomies, warninglists, modèles d'objet
 CERT_EMAIL ?=
 
 .PHONY: cert-manuel
-cert-manuel: ## CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE=<domaine> CERT_EMAIL=<courriel>
+cert-manuel: # CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE=<domaine> CERT_EMAIL=<courriel>
 	@test -n "$(DOMAINE)"    || { echo "  DOMAINE=<domaine> manquant"; exit 1; }
 	@test -n "$(CERT_EMAIL)" || { echo "  CERT_EMAIL=<courriel> manquant (avis d'expiration Let's Encrypt)"; exit 1; }
 	@echo "  Un certificat JOKER *.$(DOMAINE) : un seul enregistrement TXT couvre"
@@ -389,18 +389,18 @@ cert-manuel: ## CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE
 	@echo "  un TXT à reposer, quel que soit le nombre de noms."
 
 .PHONY: cert-etat
-cert-etat: ## Échéance du certificat public servi par la façade
+cert-etat: # Échéance du certificat public servi par la façade
 	@$(RUN) 'docker run --rm -v proxy_certificats:/etc/letsencrypt certbot/certbot certificates' 2>/dev/null \
 	  | grep -E "Certificate Name|Domains|Expiry Date" || echo "  aucun certificat public (autorité locale mkcert)"
 
 .PHONY: proxy-up
-proxy-up: ## DÉMARRE la façade HTTPS seule (crée les réseaux OpenCTI/CISO au passage)
+proxy-up: # DÉMARRE la façade HTTPS seule (crée les réseaux OpenCTI/CISO au passage)
 	@grep -qsE '^MISP_HOSTNAME=.+' "$(OCTI_ENV)" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 0; }
 	@grep -qsE '^CISO_HOSTNAME=.+' "$(CISO_ENV)" 2>/dev/null && $(RUN) 'docker network create cti-platform-ciso_default' >/dev/null 2>&1; true
 	$(RUN) '$(OCTI) up -d proxy'
 
 .PHONY: proxy-cert
-proxy-cert: ## RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) — joker *.DOMAINE, expiration
+proxy-cert: # RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) — joker *.DOMAINE, expiration
 	@domaine=$$(grep -E '^DOMAINE=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
 	 if [ -z "$$domaine" ]; then \
 	   misp=$$(grep -E '^MISP_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
@@ -414,7 +414,7 @@ proxy-cert: ## RÉGÉNÈRE le certificat mkcert de la façade (autorité locale)
 	 echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
 
 .PHONY: proxy-ca
-proxy-ca: ## EXPORTE la racine mkcert de l'autorité locale, à installer une fois sur chaque client
+proxy-ca: # EXPORTE la racine mkcert de l'autorité locale, à installer une fois sur chaque client
 	@command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert"; exit 1; }
 	@mkdir -p dist
 	@cp "$$(mkcert -CAROOT)/rootCA.pem" ./dist/ac-locale.crt
@@ -423,11 +423,11 @@ proxy-ca: ## EXPORTE la racine mkcert de l'autorité locale, à installer une fo
 	@echo "  Firefox tient son propre magasin : Paramètres > Vie privée > Certificats > Autorités > Importer."
 
 .PHONY: proxy-logs
-proxy-logs: ## Suit les journaux de la façade HTTPS
+proxy-logs: # Suit les journaux de la façade HTTPS
 	$(RUN) '$(OCTI) logs -f proxy'
 
 .PHONY: venv
-venv: ## Crée l'environnement Python (.venv) des outils de la plateforme
+venv: # Crée l'environnement Python (.venv) des outils de la plateforme
 	$(PY) -m venv .venv
 	./.venv/bin/pip install -q -U pip -r provisioning/requirements.txt
 	@echo "→ activer avec: source .venv/bin/activate"
@@ -440,37 +440,37 @@ opencti-up: ## démarre le stack OpenCTI (Phase 4) — ~12 Go RAM
 	@echo "→ $$(grep -E '^OPENCTI_EXTERNAL_SCHEME=' opencti/.env | cut -d= -f2)://$$(grep -E '^OPENCTI_HOST=' opencti/.env | cut -d= -f2):$$(grep -E '^OPENCTI_PORT=' opencti/.env | cut -d= -f2) (admin : voir opencti/.env). Premier boot ~5-10 min."
 
 .PHONY: opencti-feeds
-opencti-feeds: ## démarre les connecteurs de flux (profil `feeds`) — APRÈS que l'ATT&CK soit en base
+opencti-feeds: # démarre les connecteurs de flux (profil `feeds`) — APRÈS que l'ATT&CK soit en base
 	$(RUN) '$(OCTI) --profile feeds up -d'
 	@echo "→ flux démarrés. Suivre l'ingestion : make attack-status"
 
 .PHONY: attack-status
-attack-status: ## état du socle ATT&CK en base + file d'ingestion restante (ARGS=--wait pour bloquer jusqu'au socle complet)
+attack-status: # état du socle ATT&CK en base + file d'ingestion restante (ARGS=--wait pour bloquer jusqu'au socle complet)
 	@./.venv/bin/python provisioning/attack_status.py $(ARGS)
 
 .PHONY: socle-opencti
-socle-opencti: ## SOCLE OpenCTI : rapports STIX publics VIGINUM (après l'ATT&CK) — --yes pour pousser
+socle-opencti: # SOCLE OpenCTI : rapports STIX publics VIGINUM (après l'ATT&CK) — --yes pour pousser
 	./.venv/bin/python provisioning/opencti_socle.py $(ARGS)
 
 .PHONY: socle-all
-socle-all: ## SOCLE MISP puis SOCLE OpenCTI, l'un après l'autre — pré-requis : les deux piles up, ATT&CK chargé (make attack-status)
+socle-all: # SOCLE MISP puis SOCLE OpenCTI, l'un après l'autre — pré-requis : les deux piles up, ATT&CK chargé (make attack-status)
 	$(MAKE) --no-print-directory socle-misp
 	$(MAKE) --no-print-directory socle-opencti ARGS=--yes
 
 .PHONY: bridge-setup
-bridge-setup: ## câble le pont OpenCTI -> MISP (label export-misp + live stream + .env)
+bridge-setup: # câble le pont OpenCTI -> MISP (label export-misp + live stream + .env)
 	./.venv/bin/python provisioning/bridge_setup.py $(ARGS)
 
 .PHONY: bridge-test
-bridge-test: ## contrôle bout en bout : crée un rapport DANS OpenCTI, le cherche dans MISP, puis nettoie (ARGS=--keep pour conserver)
+bridge-test: # contrôle bout en bout : crée un rapport DANS OpenCTI, le cherche dans MISP, puis nettoie (ARGS=--keep pour conserver)
 	./.venv/bin/python provisioning/bridge_test.py $(ARGS)
 
 .PHONY: opencti-down
-opencti-stop: ## ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CONSERVÉS
+opencti-stop: # ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CONSERVÉS
 	$(RUN) '$(OCTI) --profile feeds stop -t $(STOP_TIMEOUT)'
 
 .PHONY: stop-all
-stop-all: ## ARRÊT PROPRE des piles, OpenCTI d'abord (il consomme MISP), CISO-Assistant en plus si présente
+stop-all: # ARRÊT PROPRE des piles, OpenCTI d'abord (il consomme MISP), CISO-Assistant en plus si présente
 	@# CHEMIN D'ARRÊT : il doit aboutir même si une pile bronche. Un conteneur
 	@# qui s'est déjà arrêté seul fait sortir `compose stop` en erreur
 	@# (« cannot stop container: … is not running ») ; quand les deux piles
@@ -485,7 +485,7 @@ stop-all: ## ARRÊT PROPRE des piles, OpenCTI d'abord (il consomme MISP), CISO-A
 	@echo "  repartiront au prochain démarrage du démon (restart: always)."
 
 .PHONY: autostart
-autostart: ## Installe l'unité systemd qui arrête PROPREMENT les piles à l'extinction
+autostart: # Installe l'unité systemd qui arrête PROPREMENT les piles à l'extinction
 	@mkdir -p "$(HOME)/.config/systemd/user"
 	@sed -e 's|@REPO@|$(CURDIR)|g' -e 's|@UID@|$(shell id -u)|g' \
 	     -e 's|@TIMEOUT@|$(AUTOSTART_TIMEOUT)|g' \
@@ -499,7 +499,7 @@ autostart: ## Installe l'unité systemd qui arrête PROPREMENT les piles à l'ex
 	 echo "  au-delà, systemd tue la session : prepare_host.sh pose un drop-in à 300 s."
 
 .PHONY: autostart-off
-autostart-off: ## Retire l'unité d'arrêt propre
+autostart-off: # Retire l'unité d'arrêt propre
 	-systemctl --user disable --now cti-platform.service
 	rm -f "$(HOME)/.config/systemd/user/cti-platform.service"
 	systemctl --user daemon-reload
@@ -515,7 +515,7 @@ opencti-destroy: ## Arrête OpenCTI ET supprime ses volumes (ES, MinIO, RabbitMQ
 	$(RUN) '$(OCTI) --profile feeds down -v'
 
 .PHONY: opencti-logs
-opencti-logs: ## suit les logs OpenCTI
+opencti-logs: # suit les logs OpenCTI
 	$(RUN) '$(OCTI) logs -f --tail=100'
 
 .PHONY: ciso-up
@@ -531,7 +531,7 @@ ciso-up: ## DÉMARRE CISO-Assistant (GRC) — à côté de MISP/OpenCTI, aucun �
 	@echo "  premier démarrage LENT (migrations) : make ciso-logs pour suivre"
 
 .PHONY: ciso-superuser
-ciso-superuser: ## CRÉE le premier compte admin CISO-Assistant (interactif, une fois)
+ciso-superuser: # CRÉE le premier compte admin CISO-Assistant (interactif, une fois)
 	$(RUN) '$(CISO) exec backend python manage.py createsuperuser'
 
 .PHONY: ciso-down
@@ -543,13 +543,13 @@ ciso-destroy: ## Arrête CISO-Assistant ET supprime ses volumes (base, Qdrant)
 	$(RUN) '$(CISO) down -v'
 
 .PHONY: ciso-logs
-ciso-logs: ## suit les logs CISO-Assistant
+ciso-logs: # suit les logs CISO-Assistant
 	$(RUN) '$(CISO) logs -f --tail=100'
 
 .PHONY: ciso-ps
-ciso-ps: ## état des conteneurs CISO-Assistant
+ciso-ps: # état des conteneurs CISO-Assistant
 	$(RUN) '$(CISO) ps'
 
 .PHONY: opencti-ps
-opencti-ps: ## état des conteneurs OpenCTI
+opencti-ps: # état des conteneurs OpenCTI
 	$(RUN) '$(OCTI) ps'

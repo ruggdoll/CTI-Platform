@@ -314,13 +314,15 @@ bundles.
 
 | Besoin | Commande |
 |---|---|
-| état et journaux | `make ps`, `make logs`, `make opencti-ps`, `make opencti-logs`, `make ciso-ps`, `make ciso-logs` |
-| état du socle ATT&CK et de la file d'ingestion | `make attack-status` |
-| contrôle bout en bout | `make bridge-test` |
-| racine de l'autorité locale, à installer sur les clients | `make proxy-ca` |
-| certificat public, échéance | `make cert-manuel`, `make cert-etat` |
-| arrêt propre, conteneurs conservés | `make stop-all` — ils repartent au démarrage suivant du démon |
-| arrêt, remise à zéro | `make down` / `make opencti-down` / `make ciso-down` ; `make destroy` / `make opencti-destroy` / `make ciso-destroy` (**perte totale**) — OpenCTI d'abord : ses connecteurs et la façade sont accrochés au réseau de MISP, `make down`/`make destroy` refusent de le retirer tant qu'ils y sont |
+| construire toute la plateforme, dans l'ordre | `make build HOST=<fqdn\|ip>` / `make build DOMAINE=<domaine>` |
+| démarrer une brique | `make up` (MISP), `make opencti-up`, `make ciso-up` |
+| arrêter une brique, conteneurs conservés | `make down`, `make opencti-down`, `make ciso-down` |
+| détruire une brique, volumes compris | `make destroy`, `make opencti-destroy`, `make ciso-destroy` (**perte totale**) — OpenCTI d'abord : ses connecteurs et la façade sont accrochés au réseau de MISP, `make down`/`make destroy` refusent de le retirer tant qu'ils y sont |
+
+`make help` n'affiche que ces cibles. Le reste (socle, pont, façade, diagnostics…)
+tourne à l'intérieur de `make build` et dans les cibles internes qu'il appelle —
+détaillées dans les sections ci-dessus, lisibles dans le `Makefile` si besoin
+de les rejouer une par une.
 
 ## Arborescence
 
