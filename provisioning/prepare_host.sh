@@ -100,10 +100,17 @@ if [ "$NOM" != "$ADRESSE" ]; then
     ok "/etc/hosts : $NOM -> $ADRESSE ajouté"
   fi
 fi
-RESOLU=$(getent hosts "$NOM" | awk '{print $1; exit}' || true)
+# ahostsv4, pas hosts : ce dernier interroge aussi le DNS public pour l'AAAA
+# quand /etc/hosts (qu'on vient d'écrire) ne porte qu'une ligne IPv4, et la
+# renvoie en premier (préférence IPv6 de la résolution système) — une adresse
+# PUBLIQUE potentiellement injoignable depuis les conteneurs, à la place du
+# LAN qu'on vient d'y écrire. Le SERVEUR n'a pas à dépendre du DNS public
+# pour se joindre lui-même ; que le nom résolve pour de vrais clients
+# externes est une question distincte, hors du périmètre de CE contrôle.
+RESOLU=$(getent ahostsv4 "$NOM" 2>/dev/null | awk '{print $1; exit}' || true)
 case "$RESOLU" in
-  "")     mourir "$NOM ne se résout pas" ;;
-  127.*)  mourir "$NOM résout sur $RESOLU (loopback) — corriger /etc/hosts ou le DNS" ;;
+  "")     mourir "$NOM ne se résout pas (IPv4)" ;;
+  127.*)  mourir "$NOM résout sur $RESOLU (loopback) — corriger /etc/hosts" ;;
   *)      ok "$NOM résout sur $RESOLU" ;;
 esac
 done

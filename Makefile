@@ -112,9 +112,17 @@ endif
 #     l'hôte, qu'il atteint par sa sortie réseau normale.
 # Détectée depuis HOST quand le démon est rootless, sinon `host-gateway`.
 # Surchargeable dans tous les cas : make init HOST=<fqdn> HOST_TARGET=<ip de l’hôte>
+# `ahostsv4`, pas `hosts` : ce dernier interroge aussi le DNS public pour l'AAAA
+# quand /etc/hosts (écrit par prepare_host.sh) ne porte qu'une ligne IPv4 —
+# et la renvoie en premier (préférence IPv6 de la résolution système), une
+# adresse PUBLIQUE potentiellement injoignable depuis l'intérieur du réseau
+# rootless, à la place du LAN local qu'on vient d'y écrire (constaté :
+# HOST_TARGET visant l'IPv6 publique du domaine plutôt que le LAN, 2026-09-24).
+# Le serveur n'a pas à dépendre du DNS public pour se joindre lui-même — IPv4
+# et 'files' d'abord (nsswitch), jamais le DNS pour cet usage interne.
 ROOTLESS := $(shell docker info --format '{{range .SecurityOptions}}{{.}}{{end}}' 2>/dev/null | grep -qi rootless && echo 1)
 ifeq ($(ROOTLESS),1)
-HOST_TARGET ?= $(firstword $(shell getent hosts $(HOST) 2>/dev/null | awk '{print $$1; exit}') host-gateway)
+HOST_TARGET ?= $(firstword $(shell getent ahostsv4 $(HOST) 2>/dev/null | awk '{print $$1; exit}') host-gateway)
 else
 HOST_TARGET ?= host-gateway
 endif
