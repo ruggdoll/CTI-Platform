@@ -71,9 +71,9 @@ doit pas reposer sur la mémoire de celui qui déploie :
 3. make venv          environnement Python
 4. make socle-misp    SOCLE MISP : galaxies, taxonomies, warninglists
 5. make opencti-up    pile OpenCTI + MITRE -> http://<HOST>:8080
-   attack-status --wait   attend que l'ATT&CK soit chargée, sans concurrence
+   make attack-status ARGS=--wait   attend que l'ATT&CK soit chargée, sans concurrence
 6. make bridge-setup  label export-misp + live stream, puis recrée le connecteur
-7. socle-opencti      SOCLE OpenCTI : rapports STIX publics VIGINUM
+7. make socle-opencti SOCLE OpenCTI : rapports STIX publics VIGINUM
 8. make opencti-feeds connecteurs de flux OpenCTI
 9. make autostart     arrêt propre des piles à l'extinction (unité systemd)
 ```

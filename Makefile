@@ -445,8 +445,8 @@ opencti-feeds: ## démarre les connecteurs de flux (profil `feeds`) — APRÈS q
 	@echo "→ flux démarrés. Suivre l'ingestion : make attack-status"
 
 .PHONY: attack-status
-attack-status: ## état du socle ATT&CK en base + file d'ingestion restante
-	@./.venv/bin/python provisioning/attack_status.py
+attack-status: ## état du socle ATT&CK en base + file d'ingestion restante (ARGS=--wait pour bloquer jusqu'au socle complet)
+	@./.venv/bin/python provisioning/attack_status.py $(ARGS)
 
 .PHONY: socle-opencti
 socle-opencti: ## SOCLE OpenCTI : rapports STIX publics VIGINUM (après l'ATT&CK) — --yes pour pousser
