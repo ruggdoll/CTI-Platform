@@ -271,10 +271,9 @@ make proxy-ca        # exporte la racine à installer sur les postes clients
 | `https://misp.here.local` | la pile MISP |
 | `https://opencti.here.local` | la plateforme OpenCTI |
 
-Un 3e nom, `https://ciso.here.local`, peut rejoindre la même façade si
-[CISO-Assistant](#5-quater-ciso-assistant-un-produit-séparé) est démarrée à
-part — voir cette section : ce n'est ni une pile de cette plateforme ni
-quelque chose que `make build` construit.
+Un 3e nom, `https://ciso.here.local`, rejoint la même façade dès que
+[CISO-Assistant](#5-quater-ciso-assistant-grc) est démarrée — volontairement,
+`make ciso-up`, pas `make build`.
 
 Les deux piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI
 en 8080) ; la façade tient 80 et 443 et les joint par le réseau Docker. Elle est
@@ -364,24 +363,17 @@ En échange : plus aucune racine à distribuer, les navigateurs font confiance
 nativement, et `make adressage` émet `MISP_VERIFY_SSL=1` de lui-même puisqu'il
 constate un certificat public.
 
-## 5 quater. CISO-Assistant, un produit séparé
+## 5 quater. CISO-Assistant (GRC)
 
 Ce dépôt embarque aussi le compose de
 [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community) (GRC :
-risques, conformité, audits), disponible derrière la même façade par
-confort — **ce n'est pas une pile de cette plateforme**. Elle n'échange
-aucune donnée avec MISP ou OpenCTI (ni pont, ni socle, ni adressage
-partagé), et `make build`/`make destroy`/`provisioning/backup_infra.sh` ne
-la touchent jamais.
-
-**Pourquoi la distinction compte, pas juste une histoire de vocabulaire** :
-MISP et OpenCTI partagent un socle et un flux de données réel ; CISO-Assistant
-n'a aucun de ces deux liens. Sa donnée (registre des risques, constats
-d'audit) est souvent la plus sensible des trois, son public dépasse
-fréquemment l'équipe CTI, et ses exigences de rétention n'ont rien à voir
-avec un labo explicitement rejouable depuis ses sources. La faire construire
-et détruire par le même cycle de vie qu'un labo CTI lui ferait hériter d'un
-rayon d'explosion qui n'est pas le sien.
+risques, conformité, audits), un troisième outil à côté de MISP/OpenCTI, sur
+le même hôte et la même façade par commodité — mais avec un cycle de vie
+propre : elle n'échange aucune donnée avec MISP ou OpenCTI (ni pont, ni
+socle, ni adressage partagé), et `make build`/`make destroy`/
+`provisioning/backup_infra.sh` ne la touchent jamais. Sa donnée (registre des
+risques, constats d'audit) mérite sa propre politique de sauvegarde/rétention
+plutôt que d'être entraînée par accident dans celle du labo CTI.
 
 Elle n'existe qu'en mode façade (`DOMAINE=…`) : sa pile amont ne publie aucun
 port, elle n'est joignable que par nom derrière Traefik — une contrainte de
@@ -408,11 +400,6 @@ qui les exclut explicitement (`ciso_*`) : sa politique de sauvegarde/rétention
 se définit séparément. `make stop-all` l'arrête proprement avec les deux
 autres piles si elle est présente (simple courtoisie à l'extinction, pas un
 couplage de cycle de vie) ; `make ciso-ps` en donne l'état.
-
-Pour une séparation complète (hôte, réseau, identité TLS dédiés plutôt que le
-certificat joker partagé), sortez `ciso-assistant/` dans son propre
-dépôt/VM — ce dépôt se contente de ne plus la coupler de force à la
-plateforme CTI.
 
 ## 6. Mise à jour de MISP
 

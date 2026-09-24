@@ -27,9 +27,10 @@ propres outils d'alimentation, par les interfaces standard des deux produits
 - Le pont MISP → OpenCTI remonte ces observables comme Indicators et
   Observables — **jamais** comme faux Reports.
 
-Ce dépôt héberge aussi, à part, un outil de GRC — voir
-[« CISO-Assistant, un produit séparé »](#ciso-assistant-un-produit-séparé-pas-une-3e-pile)
-pour comprendre pourquoi il n'est **pas** la 3e jambe de cette plateforme.
+Ce dépôt héberge aussi [CISO-Assistant](#ciso-assistant-grc) (GRC : risques,
+conformité, audits), à côté — même hôte, cycle de vie et sauvegarde séparés
+de `make build`/`make destroy` (aucune donnée échangée avec MISP/OpenCTI,
+démarrage volontaire par `make ciso-up`).
 
 ## Démarrage rapide
 
@@ -78,7 +79,7 @@ doit pas reposer sur la mémoire de celui qui déploie :
 ```
 
 CISO-Assistant n'apparaît pas dans cette liste : `make build` ne la construit
-jamais, c'est un [produit séparé](#ciso-assistant-un-produit-séparé-pas-une-3e-pile).
+jamais — [démarrage volontaire, à part](#ciso-assistant-grc).
 
 La cible est **idempotente** : relançable sur une plateforme à moitié
 construite. Chaque étape reste utilisable seule (`make socle-misp`,
@@ -113,8 +114,7 @@ Le TLS est assuré par un certificat **mkcert** (autorité locale posée sur
 l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build DOMAINE=…` le
 génère en **joker** (`<domaine>` et `*.<domaine>`), pas nom par nom — toute
 identité sous ce domaine y entre sans qu'il faille y repenser, y compris
-`ciso.<domaine>` si vous démarrez [CISO-Assistant](#ciso-assistant-un-produit-séparé-pas-une-3e-pile)
-à côté. Contrairement à un `openssl` maison, l'autorité n'a besoin d'être
+`ciso.<domaine>` si vous démarrez [CISO-Assistant](#ciso-assistant-grc) à côté. Contrairement à un `openssl` maison, l'autorité n'a besoin d'être
 approuvée qu'**une fois** par poste client — les régénérations ultérieures du
 certificat (`make proxy-cert`) restent approuvées sans nouveau geste, tant que
 la racine mkcert de l'hôte ne change pas.
@@ -176,35 +176,22 @@ tous les trois mois (certificat public). Détails dans
 [`docs/SETUP.md`](docs/SETUP.md) : l'architecture est identique dans les deux
 cas, seule la fabrique des certificats change.
 
-## CISO-Assistant, un produit séparé (pas une 3e pile)
+## CISO-Assistant (GRC)
 
 Ce dépôt héberge aussi le compose de
 [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community) (GRC :
-risques, conformité, audits), disponible derrière la même façade HTTPS par
-confort — mais ce **n'est pas** une troisième pile de cette plateforme, et
-`make build`/`make destroy`/la sauvegarde ne la touchent **jamais**.
+risques, conformité, audits), un troisième outil à côté de MISP/OpenCTI —
+même hôte, même façade HTTPS par commodité, mais un cycle de vie propre.
 
-**Pourquoi séparé plutôt qu'« optionnel » simplement** : MISP et OpenCTI
-forment une paire réelle — ils échangent des données par deux ponts, servent
-la même équipe CTI, partagent un socle de référentiels à poser avant tout
-flux. CISO-Assistant n'a rien de tout ça : zéro pont, zéro socle commun, zéro
-adressage partagé. Sa donnée (registre des risques, constats d'audit) est
-souvent la plus sensible des trois — « voici toutes les faiblesses de notre
-posture de sécurité » —, son public dépasse fréquemment l'équipe CTI
-(auditeurs, direction, propriétaires de risques), et ses exigences de
-rétention n'ont rien à voir avec un labo CTI explicitement rejouable depuis
-ses sources (`admin@cti-lab.local`, CA locale auto-signée, un seul
-opérateur). La faire construire/détruire/sauvegarder par le même cycle de vie
-que le labo, c'est lui faire hériter d'un rayon d'explosion qui n'est pas le
-sien.
-
-**Ce que « séparé » veut dire concrètement ici** : son compose reste dans ce
-dépôt et peut partager la façade Traefik/le certificat mkcert par commodité
-(routage conditionnel : ses deux routeurs n'existent que si `CISO_HOSTNAME`
-est renseigné) — mais son cycle de vie, ses secrets et sa sauvegarde sont
-gérés à part, jamais entraînés par une commande visant « la plateforme ».
-Pour une séparation complète (hôte/réseau dédiés), sortez `ciso-assistant/`
-dans son propre dépôt/VM ; ce dépôt ne fait que ne plus la coupler de force.
+**Pourquoi un cycle de vie à part** : MISP et OpenCTI échangent des données
+par deux ponts et partagent un socle de référentiels à poser avant tout flux
+— une paire réelle. CISO-Assistant n'a aucun de ces deux liens (zéro pont,
+zéro socle, zéro adressage partagé avec les deux autres), et sa donnée
+(registre des risques, constats d'audit) mérite sa propre politique de
+sauvegarde/rétention plutôt que d'être entraînée par accident dans celle du
+labo CTI. D'où : `make build`, `make destroy` et `provisioning/backup_infra.sh`
+ne la touchent jamais — `make ciso-up`/`make ciso-destroy` la pilotent, à
+part, quand vous le décidez.
 
 **Elle n'existe qu'en mode façade** (`DOMAINE=…`) : sa pile amont ne publie
 aucun port, elle n'est joignable que par nom derrière Traefik — une
@@ -375,7 +362,7 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | `provisioning/adressage.py`, `misp_cle_automation.py` | ce qu'un outil d'alimentation doit connaître, et la clé dédiée pour s'en servir |
 | `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
 | `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build DOMAINE=…`) |
-| `ciso-assistant/docker-compose.yml` | CISO-Assistant (GRC), produit séparé — `make ciso-up`, jamais `make build` |
+| `ciso-assistant/docker-compose.yml` | CISO-Assistant (GRC), cycle de vie à part — `make ciso-up`, jamais `make build` |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |
 
 ## Sécurité
