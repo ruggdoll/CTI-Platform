@@ -291,12 +291,15 @@ ni d'un proxy.
 
 Traefik ne tient pas d'autorité de certification intégrée — contrairement à
 Caddy, qu'il remplace ici. La façade sert donc un certificat **mkcert**
-(paquet Debian/Ubuntu `mkcert`) : une autorité locale posée
-**sur l'hôte**, qui signe un certificat pour les trois noms. `make
-init`/`make build DOMAINE=…` génère l'autorité (si absente) et le certificat en
-un geste ; `make proxy-cert` régénère seulement le certificat (noms changés,
-expiration). Le seul geste côté poste client est d'importer la racine une
-fois (`make proxy-ca`), après quoi `MISP_VERIFY_SSL` peut passer à `1`.
+(paquet Debian/Ubuntu `mkcert`) : une autorité locale posée **sur l'hôte**,
+qui signe un certificat **joker** (`<domaine>` et `*.<domaine>`) — un seul
+certificat pour toute identité présente ou future sous ce domaine, sans énumérer
+`misp.`, `opencti.`, `ciso.` un par un ni en régénérer un à chaque ajout.
+`make init`/`make build DOMAINE=…` génère l'autorité (si absente) et le
+certificat en un geste ; `make proxy-cert` régénère seulement le certificat
+(expiration — le domaine ne change pas plus souvent que HOST). Le seul geste
+côté poste client est d'importer la racine une fois (`make proxy-ca`), après
+quoi `MISP_VERIFY_SSL` peut passer à `1`.
 
 L'autorité vit dans le magasin mkcert de l'utilisateur qui déploie
 (`mkcert -CAROOT`, hors de Docker) et le certificat dans `proxy/certs/` (bind
@@ -370,9 +373,10 @@ commun.
 Elle n'existe qu'en mode façade (`DOMAINE=…`) : sa pile amont ne publie aucun
 port, elle n'est joignable que par nom derrière Traefik — une contrainte de
 l'image, pas un réglage de ce dépôt. `make init DOMAINE=<domaine>` écrit donc
-toujours `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` et l'inclut
-dans le certificat mkcert (3e SAN), et `make build DOMAINE=<domaine>` la
-démarre avec les deux autres, à l'étape 9/10 — aucun geste séparé à retenir.
+toujours `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` — couvert
+d'office par le certificat joker de la façade (`*.<domaine>`, pas un nom à y
+ajouter) —, et `make build DOMAINE=<domaine>` la démarre avec les deux autres,
+à l'étape 9/10 — aucun geste séparé à retenir.
 Le routeur Traefik correspondant (`proxy/dynamic/dynamic.yml`, un gabarit Go)
 ne se rend que si `CISO_HOSTNAME` est non vide — le retirer du fichier suffit
 à désactiver la façade CISO sans toucher au reste ; `make ciso-up` reste

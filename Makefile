@@ -227,14 +227,14 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	    sed -i "s|^OPENCTI_HOST=.*|OPENCTI_HOST=$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
 	    sed -i "s|^OPENCTI_EXTERNAL_SCHEME=.*|OPENCTI_EXTERNAL_SCHEME=https|" "$(OCTI_ENV)"; \
 	    sed -i "s|^OPENCTI_BASE_URL=.*|OPENCTI_BASE_URL=https://$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
-	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
-	      "$(DOMAINE)" "MISP_HOSTNAME=$(MISP_HOSTNAME)" "OPENCTI_HOSTNAME=$(OPENCTI_HOSTNAME)" \
+	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+	      "$(DOMAINE)" "DOMAINE=$(DOMAINE)" "MISP_HOSTNAME=$(MISP_HOSTNAME)" "OPENCTI_HOSTNAME=$(OPENCTI_HOSTNAME)" \
 	      "PROXY_BIND=0.0.0.0" "PROXY_HTTP_PORT=80" "PROXY_HTTPS_PORT=443" \
 	      "PROXY_TLS_CERT=/certs-mkcert/cert.pem" "PROXY_TLS_KEY=/certs-mkcert/key.pem" \
 	      "CISO_HOSTNAME=$(CISO_HOSTNAME)" >> "$(OCTI_ENV)"; \
 	    command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert (ou relancer prepare_host.sh --domaine)"; exit 1; }; \
 	    TRUST_STORES=none mkcert -install >/dev/null; \
-	    TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$(MISP_HOSTNAME)" "$(OPENCTI_HOSTNAME)" "$(CISO_HOSTNAME)"; \
+	    TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$(DOMAINE)" "*.$(DOMAINE)"; \
 	  fi; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(HOST), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
 	fi
@@ -353,15 +353,17 @@ proxy-up: ## DÉMARRE la façade HTTPS seule (crée les réseaux OpenCTI/CISO au
 	$(RUN) '$(OCTI) up -d proxy'
 
 .PHONY: proxy-cert
-proxy-cert: ## RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) — noms changés, expiration
-	@misp=$$(grep -E '^MISP_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
-	 octi=$$(grep -E '^OPENCTI_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
-	 ciso=$$(grep -E '^CISO_HOSTNAME=' "$(CISO_ENV)" 2>/dev/null | cut -d= -f2); \
-	 test -n "$$misp" -a -n "$$octi" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 1; }; \
+proxy-cert: ## RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) — joker *.DOMAINE, expiration
+	@domaine=$$(grep -E '^DOMAINE=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
+	 if [ -z "$$domaine" ]; then \
+	   misp=$$(grep -E '^MISP_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
+	   domaine="$${misp#misp.}"; \
+	 fi; \
+	 test -n "$$domaine" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 1; }; \
 	 command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert"; exit 1; }; \
 	 TRUST_STORES=none mkcert -install >/dev/null; \
-	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$misp" "$$octi" $${ciso:+"$$ciso"}; \
-	 echo "  certificat régénéré pour $$misp, $$octi$${ciso:+, $$ciso} (proxy/certs/)"; \
+	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$domaine" "*.$$domaine"; \
+	 echo "  certificat régénéré pour $$domaine et *.$$domaine (proxy/certs/) — couvre toute future identité, sans y repenser"; \
 	 echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
 
 .PHONY: proxy-ca

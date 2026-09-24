@@ -119,12 +119,12 @@ ne la traversent jamais.
 
 Le TLS est assuré par un certificat **mkcert** (autorité locale posée sur
 l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build DOMAINE=…` le
-génère pour les trois noms (MISP, OpenCTI, CISO-Assistant). Contrairement à un
-`openssl` maison, l'autorité
-n'a besoin d'être approuvée qu'**une fois** par poste client — les
-régénérations ultérieures du certificat (`make proxy-cert`) restent
-approuvées sans nouveau geste, tant que la racine mkcert de l'hôte ne change
-pas.
+génère en **joker** (`<domaine>` et `*.<domaine>`), pas nom par nom — MISP,
+OpenCTI, CISO-Assistant et toute identité future y entrent sans qu'il faille y
+repenser. Contrairement à un `openssl` maison, l'autorité n'a besoin d'être
+approuvée qu'**une fois** par poste client — les régénérations ultérieures du
+certificat (`make proxy-cert`) restent approuvées sans nouveau geste, tant que
+la racine mkcert de l'hôte ne change pas.
 
 ### Ce que chaque poste client doit faire — une fois
 
