@@ -1,12 +1,14 @@
 # CTI-Platform
 
 Une plateforme de renseignement sur les menaces (CTI) auto-hébergée, faite de
-deux piles Docker — **MISP** et **OpenCTI** — reliées par deux ponts, et de
-quoi la **construire en une commande, l'exploiter, la sauvegarder, la
-détruire et la mettre à jour**. Rien d'autre : ce dépôt ne contient aucune
-donnée de renseignement et aucun outil de collecte. Le contenu vient de vos
-propres outils d'alimentation, par les interfaces standard des deux produits
-(bundles STIX 2.1 côté OpenCTI, API et feeds côté MISP).
+deux piles Docker — **MISP** et **OpenCTI** — reliées par deux ponts, d'une
+troisième pile **optionnelle et indépendante** — **CISO-Assistant** (GRC) —
+sous sa propre identité derrière la même façade, et de quoi le tout se
+**construire en une commande, s'exploiter, se sauvegarder, se détruire et se
+mettre à jour**. Rien d'autre : ce dépôt ne contient aucune donnée de
+renseignement et aucun outil de collecte. Le contenu vient de vos propres
+outils d'alimentation, par les interfaces standard des produits (bundles
+STIX 2.1 côté OpenCTI, API et feeds côté MISP).
 
 ```
     ┌────────────────┐   connector-misp-intel   ┌──────────────┐
@@ -16,6 +18,14 @@ propres outils d'alimentation, par les interfaces standard des deux produits
     └───────┬────────┘   connector-misp         └──────────────┘
             │
             └─▶ TAXII 2.1 ─▶ abonnés
+
+    ┌─────────────────────────┐
+    │     CISO-Assistant      │
+    │  GRC (risques, audits,  │
+    │       conformité)       │
+    └─────────────────────────┘
+      optionnelle (make ciso-up) — aucune flèche vers les piles ci-dessus,
+      juste la façade HTTPS en commun. Détails plus bas.
 ```
 
 - **OpenCTI** est le cœur : graphe de connaissance (Intrusion-Set, Malware,
@@ -26,6 +36,8 @@ propres outils d'alimentation, par les interfaces standard des deux produits
   (feeds MISP natifs, API) pour les observables publiés sans rapport.
 - Le pont MISP → OpenCTI remonte ces observables comme Indicators et
   Observables — **jamais** comme faux Reports.
+- **CISO-Assistant** est indépendante : ni pont, ni socle, ni adressage
+  partagé avec les deux piles ci-dessus (voir [plus bas](#ciso-assistant-grc--optionnelle-à-côté)).
 
 ## Démarrage rapide
 
@@ -86,11 +98,12 @@ par défaut : `admin@cti-lab.local` / `MyP@ssword42!` des deux côtés
 d'infrastructure et les clés cryptographiques sont tirés au hasard. Détail
 dans [`docs/SETUP.md`](docs/SETUP.md) ; `make help` liste les cibles.
 
-## Deux identités derrière une façade HTTPS
+## Plusieurs identités derrière une façade HTTPS
 
-`make build DOMAINE=<domaine>` met un proxy inverse devant les deux piles et
+`make build DOMAINE=<domaine>` met un proxy inverse devant MISP et OpenCTI et
 leur donne un nom chacune, au lieu d'une seule façade où OpenCTI vivait sur un
-port :
+port — CISO-Assistant, optionnelle, en reçoit un troisième si elle est
+démarrée :
 
 | | |
 |---|---|
@@ -114,11 +127,13 @@ pas.
 
 ### Ce que chaque poste client doit faire — une fois
 
-**1. Résoudre les deux noms.** Ils n'ont pas à exister dans un DNS public ; une
-entrée dans le fichier `hosts` suffit :
+**1. Résoudre les noms actifs.** Ils n'ont pas à exister dans un DNS public ;
+une entrée dans le fichier `hosts` suffit — `ciso.<domaine>` en plus si
+CISO-Assistant est démarrée :
 
 ```bash
 echo '<ip de la plateforme>   misp.<domaine> opencti.<domaine>' | sudo tee -a /etc/hosts
+#   ... et ciso.<domaine> si `make ciso-up` a été lancé
 ```
 
 **2. Faire confiance à l'autorité locale**, sans quoi le navigateur signale une
@@ -196,7 +211,7 @@ make ciso-superuser      # crée le premier compte admin, une fois la pile en li
 
 ## Le socle — à poser avant tout flux
 
-Les deux plateformes ont besoin de leurs **référentiels** avant de recevoir la
+MISP et OpenCTI ont besoin de leurs **référentiels** avant de recevoir la
 moindre donnée. Sans eux, les tags ne sont pas validés, les acteurs ne sont pas
 reconnus, rien ne filtre les faux positifs, et les techniques citées dans un
 rapport créent des souches vides à fusionner plus tard.
@@ -260,7 +275,10 @@ Ce qui ne voyage pas dans un bundle et se rejoue après un import :
 `first_seen` / `last_seen` des entités (sinon OpenCTI laisse des valeurs
 sentinelles, 1970 et 5138).
 
-## Les deux piles
+## MISP et OpenCTI — les deux piles reliées
+
+CISO-Assistant, la troisième pile, est indépendante de celles-ci — voir
+[plus haut](#ciso-assistant-grc--optionnelle-à-côté).
 
 ### OpenCTI — le graphe et les rapports
 
