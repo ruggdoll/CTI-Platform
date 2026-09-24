@@ -69,7 +69,7 @@ case "$SECU" in *rootless*) ok "démon ROOTLESS opérationnel, pilote $PILOTE" ;
                 *) ko "le démon répond mais n'est PAS rootless (options : $SECU)" ;; esac
 case "$PILOTE" in
   overlay*) : ;;
-  *) info "pilote $PILOTE : MinIO peut refuser d'écrire ; diag_rootless.sh dira si le repli MINIO_DATA est nécessaire" ;;
+  *) info "pilote $PILOTE : MinIO peut refuser d'écrire sur le volume opencti_fichiers (repli MINIO_DATA)" ;;
 esac
 info "ulimit -n = $(ulimit -n), memlock = $(ulimit -l)"
 ok "docker compose $(docker compose version --short 2>/dev/null || echo '?')"

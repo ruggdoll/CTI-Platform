@@ -59,10 +59,6 @@ git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform ~/CTI-Pl
 cd ~/CTI-Platform && make build HOST=<fqdn>
 ```
 
-`provisioning/diag_rootless.sh` contrôle l'hôte à tout moment sans rien
-modifier : mode du démon, pilote de stockage, capacité de MinIO à écrire
-(volume nommé **et** répertoire lié), liaison effective des ports privilégiés.
-
 ## 1. Récupération
 
 ```bash
@@ -154,15 +150,13 @@ Anti-boucle : les events créés par le pont retour sortent en distribution 1 et
 
 ### Rotation de la clé API MISP
 
-```bash
-make misp-setup    # régénère la clé admin, la repose dans les deux .env, réaligne l'org
-make opencti-up    # recrée les connecteurs avec la nouvelle clé
-```
+La clé admin se régénère depuis l'interface MISP (Administration → Users →
+l'utilisateur admin → « change auth key »), puis se reporte à la main dans
+`opencti/.env` (`MISP_KEY`) et `make opencti-up` recrée les connecteurs.
 
-`make admin-key` se contente d'afficher une clé fraîche. Les outils Python
-lisent les `.env` via `provisioning/_config.py` — rien à exporter dans le
-shell ; pour une exécution ponctuelle avec d'autres identifiants, les variables
-d'environnement l'emportent :
+Les outils Python lisent les `.env` via `provisioning/_config.py` — rien à
+exporter dans le shell ; pour une exécution ponctuelle avec d'autres
+identifiants, les variables d'environnement l'emportent :
 
 ```bash
 export MISP_URL=https://serveurCTI
@@ -174,44 +168,14 @@ export MISP_VERIFY_SSL=0        # cert auto-signé
 
 La plateforme n'analyse rien et ne moissonne rien. Elle expose les interfaces
 standard des deux produits ; c'est à un outillage d'alimentation, tenu à part,
-de les utiliser.
-
-C'est la plateforme qui émet son propre adressage :
-
-```bash
-make adressage                            # aperçu, secrets masqués
-make adressage ARGS=--secrets > …/.env    # fragment prêt à l'emploi
-```
-
-Elle avertit si elle est déclarée sur `localhost` — auquel cas rien de ce
-qu'elle émet ne servira à un outil situé ailleurs — et règle `MISP_VERIFY_SSL`
-en lisant le certificat réellement en place plutôt qu'en le supposant.
-
-`make adressage` émet la clé **admin**, que `make misp-setup` régénère : tout
-traitement qui s'en sert tombe alors en 403. Pour ce qui tourne sans
-surveillance, préférer une clé dédiée.
-
-**Dédiée veut dire sur un AUTRE compte.** `make misp-setup` appelle
-`cake user change_authkey`, qui invalide *toutes* les clés de l'utilisateur
-visé, pas seulement la précédente : une clé d'automation créée sur le compte
-admin tombe avec lui. Mesuré le 2026-09-15 — HTTP 403 après rotation.
-`make cle-automation` crée donc un compte de service (`automation@<domaine de
-l'admin>`, rôle **User** : API autorisée, création d'events permise, ni
-administration ni synchronisation) et mine la clé pour lui. Vérifié après
-rotation : clé admin renouvelée, clé d'automation toujours en HTTP 200.
-
-```bash
-make cle-automation ARGS="--env --commentaire 'nom de l outil'" > …/.env
-make cle-automation ARGS=--lister         # inventaire, sans révéler de secret
-```
-
-MISP ne montre la valeur d'une clé **qu'à sa création** : ce fragment est le
-seul endroit où elle apparaît. Elle n'est ensuite que révocable.
+de les utiliser. L'adressage se lit directement dans les `.env` — pas de
+commande dédiée : la plateforme tourne sur une seule machine, sous un seul
+opérateur.
 
 | Vers | Interface | Adressage |
 |---|---|---|
 | OpenCTI | bundle STIX 2.1 : connecteur `import-file-stix` (dossier surveillé) ou `stix2.import_bundle_from_file` (pycti). Un `Report` par publication, étiqueté `export-misp` pour être repris par le pont retour et par la collection TAXII | `opencti/.env` : `OPENCTI_EXTERNAL_SCHEME`, `OPENCTI_HOST`, `OPENCTI_PORT`, `OPENCTI_ADMIN_TOKEN` |
-| MISP | feed MISP natif enregistré par l'API, ou event construit par l'API (PyMISP) | `vendor/misp-docker/.env` : `BASE_URL` ; clé : `make cle-automation` (**dédiée**, elle survit à `make misp-setup` — contrairement à `MISP_KEY`, qui est la clé admin) |
+| MISP | feed MISP natif enregistré par l'API, ou event construit par l'API (PyMISP) | `vendor/misp-docker/.env` : `BASE_URL` ; clé : `opencti/.env` → `MISP_KEY` |
 
 Deux contraintes de la plateforme : les events du pont retour restent en
 distribution 1 (signal anti-boucle, ne jamais les passer en 3), et un
@@ -360,8 +324,7 @@ l'autorité locale évite — le choix se fait donc entre « un geste par poste
 client, une fois » et « un geste sur le serveur, tous les trois mois ».
 
 En échange : plus aucune racine à distribuer, les navigateurs font confiance
-nativement, et `make adressage` émet `MISP_VERIFY_SSL=1` de lui-même puisqu'il
-constate un certificat public.
+nativement, et `MISP_VERIFY_SSL` peut repasser à `1` dans `opencti/.env`.
 
 ## 5 quater. CISO-Assistant (GRC)
 
@@ -370,10 +333,8 @@ Ce dépôt embarque aussi le compose de
 risques, conformité, audits), un troisième outil à côté de MISP/OpenCTI, sur
 le même hôte et la même façade par commodité — mais avec un cycle de vie
 propre : elle n'échange aucune donnée avec MISP ou OpenCTI (ni pont, ni
-socle, ni adressage partagé), et `make build`/`make destroy`/
-`provisioning/backup_infra.sh` ne la touchent jamais. Sa donnée (registre des
-risques, constats d'audit) mérite sa propre politique de sauvegarde/rétention
-plutôt que d'être entraînée par accident dans celle du labo CTI.
+socle, ni adressage partagé), et `make build`/`make destroy` ne la touchent
+jamais.
 
 Elle n'existe qu'en mode façade (`DOMAINE=…`) : sa pile amont ne publie aucun
 port, elle n'est joignable que par nom derrière Traefik — une contrainte de
@@ -393,11 +354,10 @@ make ciso-logs             # premier démarrage LENT : ~200 migrations Django,
 make ciso-superuser        # une fois la pile en ligne : premier compte admin
 ```
 
-Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-destroy`
-les détruit avec les conteneurs (**perte totale**), jamais entraînés par
-`make destroy`/`make opencti-destroy` — ni par `provisioning/backup_infra.sh`,
-qui les exclut explicitement (`ciso_*`) : sa politique de sauvegarde/rétention
-se définit séparément. `make stop-all` l'arrête proprement avec les deux
+Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-down`
+l'arrête en les conservant, `make ciso-destroy` les détruit avec les
+conteneurs (**perte totale**) — jamais entraînés par `make destroy`/
+`make opencti-destroy`. `make stop-all` l'arrête proprement avec les deux
 autres piles si elle est présente (simple courtoisie à l'extinction, pas un
 couplage de cycle de vie) ; `make ciso-ps` en donne l'état.
 

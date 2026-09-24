@@ -23,8 +23,8 @@ observables, indicateurs, relations). Sans la seconde branche, OpenCTI ne sert
 que les objets `report` avec des `object_refs` pendants — vérifié le
 2026-09-07 (collection initiale : 50 reports/page, 0 ref résolue).
 
-Mesure du 2026-09-07 (`make taxii-check`, client `taxii2-client` + validation
-`stix2`) : 51 808 objets en 104 pages (~4 min), collecte complète, 0 relation
+Mesure du 2026-09-07 (client `taxii2-client` + validation `stix2`, script
+ad hoc) : 51 808 objets en 104 pages (~4 min), collecte complète, 0 relation
 à extrémité manquante, 1 `object_refs` non servi (une marking-definition,
 attendu). Objets rejetés par la validation stricte `stix2` : `location` sans
 `country`/`region` (specs à corriger) et relations `stop_time == start_time`

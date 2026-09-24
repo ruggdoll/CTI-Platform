@@ -2,8 +2,8 @@
 
 Une plateforme de renseignement sur les menaces (CTI) auto-hébergée, faite de
 deux piles Docker — **MISP** et **OpenCTI** — reliées par deux ponts, et de
-quoi la **construire en une commande, l'exploiter, la sauvegarder, la
-détruire et la mettre à jour**. Rien d'autre : ce dépôt ne contient aucune
+quoi la **construire en une commande, l'exploiter et la détruire**. Rien
+d'autre : ce dépôt ne contient aucune
 donnée de renseignement et aucun outil de collecte. Le contenu vient de vos
 propres outils d'alimentation, par les interfaces standard des deux produits
 (bundles STIX 2.1 côté OpenCTI, API et feeds côté MISP).
@@ -28,9 +28,9 @@ propres outils d'alimentation, par les interfaces standard des deux produits
   Observables — **jamais** comme faux Reports.
 
 Ce dépôt héberge aussi [CISO-Assistant](#ciso-assistant-grc) (GRC : risques,
-conformité, audits), à côté — même hôte, cycle de vie et sauvegarde séparés
-de `make build`/`make destroy` (aucune donnée échangée avec MISP/OpenCTI,
-démarrage volontaire par `make ciso-up`).
+conformité, audits), à côté — même hôte, cycle de vie séparé de `make
+build`/`make destroy` (aucune donnée échangée avec MISP/OpenCTI, démarrage
+volontaire par `make ciso-up`).
 
 ## Démarrage rapide
 
@@ -186,12 +186,9 @@ même hôte, même façade HTTPS par commodité, mais un cycle de vie propre.
 **Pourquoi un cycle de vie à part** : MISP et OpenCTI échangent des données
 par deux ponts et partagent un socle de référentiels à poser avant tout flux
 — une paire réelle. CISO-Assistant n'a aucun de ces deux liens (zéro pont,
-zéro socle, zéro adressage partagé avec les deux autres), et sa donnée
-(registre des risques, constats d'audit) mérite sa propre politique de
-sauvegarde/rétention plutôt que d'être entraînée par accident dans celle du
-labo CTI. D'où : `make build`, `make destroy` et `provisioning/backup_infra.sh`
-ne la touchent jamais — `make ciso-up`/`make ciso-destroy` la pilotent, à
-part, quand vous le décidez.
+zéro socle, zéro adressage partagé avec les deux autres). D'où : `make build`
+et `make destroy` ne la touchent jamais — `make ciso-up`/`make ciso-down`/
+`make ciso-destroy` la pilotent, à part, quand vous le décidez.
 
 **Elle n'existe qu'en mode façade** (`DOMAINE=…`) : sa pile amont ne publie
 aucun port, elle n'est joignable que par nom derrière Traefik — une
@@ -213,8 +210,8 @@ make ciso-superuser       # crée le premier compte admin, une fois la pile en l
 | premier compte admin | `make ciso-superuser` |
 | état des conteneurs | `make ciso-ps` |
 | journaux | `make ciso-logs` |
+| arrêt, conteneurs conservés | `make ciso-down` |
 | arrêt, volumes détruits (base, Qdrant) | `make ciso-destroy` (**perte totale**) |
-| sauvegarde | **pas par `provisioning/backup_infra.sh`** — sa politique de rétention lui est propre, à définir séparément |
 
 ## Le socle — à poser avant tout flux
 
@@ -254,24 +251,13 @@ types propres à OpenCTI (`media-content`, `channel`, `narrative`) — du STIX
 
 ## Alimenter la plateforme
 
-La plateforme ne moissonne rien et n'analyse rien. Ce qu'un outil
-d'alimentation doit savoir :
-
-L'adressage, c'est la plateforme qui l'émet :
-
-- `make adressage` en donne l'aperçu, secrets masqués ;
-- `make adressage ARGS=--secrets` le fragment `.env` à rediriger dans l'outil ;
-- `make cle-automation ARGS=--env` le même fragment, mais avec une clé MISP
-  **dédiée** — portée par un compte de service, elle survit à la rotation de la
-  clé admin que `make misp-setup` provoque.
-
-Aller lire `opencti/.env` à la main ne vaut que si l'outil tourne sur la même
-machine. Dès que la plateforme est ailleurs, c'est cette commande qui fait foi.
+La plateforme ne moissonne rien et n'analyse rien. L'adressage se lit
+directement dans les `.env` :
 
 | Vers | Interface | Où trouver l'adressage |
 |---|---|---|
-| OpenCTI | bundle STIX 2.1 par le connecteur `import-file-stix` ou `stix2.import_bundle_from_file` (pycti) ; un `Report` par publication, étiqueté **`export-misp`** pour être repris par le pont retour et par la collection TAXII | `make adressage` → `OPENCTI_URL`, `OPENCTI_TOKEN` |
-| MISP | feed MISP natif enregistré par l'API, ou event créé par l'API (PyMISP) avec une **clé d'automation dédiée** | `make adressage` → `MISP_URL`, `MISP_KEY`, `MISP_ORG`, `MISP_VERIFY_SSL` |
+| OpenCTI | bundle STIX 2.1 par le connecteur `import-file-stix` ou `stix2.import_bundle_from_file` (pycti) ; un `Report` par publication, étiqueté **`export-misp`** pour être repris par le pont retour et par la collection TAXII | `opencti/.env` → `OPENCTI_URL`, `OPENCTI_ADMIN_TOKEN` |
+| MISP | feed MISP natif enregistré par l'API, ou event créé par l'API (PyMISP) | `opencti/.env` → `MISP_URL`, `MISP_KEY`, `MISP_ORG`, `MISP_VERIFY_SSL` |
 
 Deux règles que la plateforme impose par construction : les events créés par
 le pont retour sortent en distribution 1 et y restent (c'est le signal
@@ -323,25 +309,21 @@ compris quand il échoue — `--keep` les conserve pour le débogage.
 
 Voir [`docs/DELIVERY.md`](docs/DELIVERY.md). La plateforme sert une
 **collection TAXII 2.1** (Reports `export-misp` **et** tout ce qu'ils
-contiennent — filtre `dynamicRegardingOf`), contrôlée par `make taxii-check`
-avec un client tiers. Feed MISP client et snapshot initial sont produits par
-l'outillage d'alimentation, depuis les mêmes bundles.
+contiennent — filtre `dynamicRegardingOf`). Feed MISP client et snapshot
+initial sont produits par l'outillage d'alimentation, depuis les mêmes
+bundles.
 
 ## Exploiter
 
 | Besoin | Commande |
 |---|---|
-| état et journaux | `make ps`, `make logs`, `make opencti-ps`, `make opencti-logs` |
+| état et journaux | `make ps`, `make logs`, `make opencti-ps`, `make opencti-logs`, `make ciso-ps`, `make ciso-logs` |
 | état du socle ATT&CK et de la file d'ingestion | `make attack-status` |
-| rotation de la clé API MISP, réalignement de l'organisation | `make misp-setup` |
 | contrôle bout en bout | `make bridge-test` |
-| adressage à donner à un outil d'alimentation | `make adressage` |
-| clé MISP dédiée, qui survit à `misp-setup` | `make cle-automation` |
 | racine de l'autorité locale, à installer sur les clients | `make proxy-ca` |
 | certificat public, échéance | `make cert-manuel`, `make cert-etat` |
-| sauvegarde complète | `provisioning/backup_infra.sh` — volumes, montages liés, `.env`, dépôts ; conteneurs arrêtés |
 | arrêt propre, conteneurs conservés | `make stop-all` — ils repartent au démarrage suivant du démon |
-| arrêt, remise à zéro | `make down` / `make opencti-down` ; `make destroy` / `make opencti-destroy` (**perte totale**) — OpenCTI d'abord : ses connecteurs et la façade sont accrochés au réseau de MISP, `make down`/`make destroy` refusent de le retirer tant qu'ils y sont |
+| arrêt, remise à zéro | `make down` / `make opencti-down` / `make ciso-down` ; `make destroy` / `make opencti-destroy` / `make ciso-destroy` (**perte totale**) — OpenCTI d'abord : ses connecteurs et la façade sont accrochés au réseau de MISP, `make down`/`make destroy` refusent de le retirer tant qu'ils y sont |
 
 ## Arborescence
 
@@ -355,11 +337,7 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | `provisioning/build_platform.sh` | construction complète dans le bon ordre (`make build`) |
 | `provisioning/misp_socle.py`, `opencti_socle.py`, `attack_status.py` | socle des deux plateformes : référentiels MISP, ATT&CK, rapports STIX VIGINUM |
 | `provisioning/bridge_setup.py`, `bridge_test.py`, `selftest/` | câblage et contrôle bout en bout du pont |
-| `provisioning/taxii_check.py` | contrôle de la collection TAXII 2.1 livrée |
-| `provisioning/misp_org.py`, `backup_infra.sh` | alignement de l'organisation MISP, sauvegarde complète |
 | `provisioning/prepare_host.sh`, `rootless_setup.sh` | préparation d'un hôte neuf : tout ce qui exige root, puis le démon rootless du compte |
-| `provisioning/diag_rootless.sh` | diagnostic d'un hôte rootless — ne modifie rien |
-| `provisioning/adressage.py`, `misp_cle_automation.py` | ce qu'un outil d'alimentation doit connaître, et la clé dédiée pour s'en servir |
 | `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
 | `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build DOMAINE=…`) |
 | `ciso-assistant/docker-compose.yml` | CISO-Assistant (GRC), cycle de vie à part — `make ciso-up`, jamais `make build` |

@@ -43,7 +43,7 @@ OCTI := docker compose -p $(OCTI_PROJECT) --project-directory $(CURDIR)/opencti 
 
 # CISO-Assistant (GRC) : à côté de MISP/OpenCTI, cycle de vie à part — voir
 # CISO_HOSTNAME plus bas. Son propre projet compose, jamais dans le périmètre
-# de make build/destroy/backup_infra.sh.
+# de make build/destroy.
 CISO := docker compose -p $(CISO_PROJECT) --project-directory $(CURDIR)/ciso-assistant \
 	--env-file $(CURDIR)/ciso-assistant/.env -f $(CURDIR)/ciso-assistant/docker-compose.yml
 
@@ -362,19 +362,6 @@ shell: ## Shell dans le conteneur misp-core
 socle-misp: ## SOCLE MISP : galaxies, taxonomies, warninglists, modèles d'objets (avant tout flux)
 	./.venv/bin/python provisioning/misp_socle.py $(ARGS)
 
-.PHONY: admin-key
-admin-key: ## Affiche la clé API du compte admin
-	@$(RUN) '$(COMPOSE) exec -T misp-core sudo -u www-data /var/www/MISP/app/Console/cake user change_authkey $(shell grep -E "^ADMIN_EMAIL=" $(ENV_FILE) 2>/dev/null | cut -d= -f2)' | tail -1
-
-.PHONY: misp-setup
-misp-setup: ## ROTATION : régénère la clé API admin, la repose dans les .env, réaligne l'org
-	@key=$$($(RUN) '$(COMPOSE) exec -T misp-core sudo -u www-data /var/www/MISP/app/Console/cake user change_authkey $(shell grep -E "^ADMIN_EMAIL=" $(ENV_FILE) 2>/dev/null | cut -d= -f2)' | grep -oE '[a-zA-Z0-9]{40}' | tail -1); \
-	  test -n "$$key" || { echo "clé introuvable — MISP est-il prêt ? (make logs)"; exit 1; }; \
-	  sed -i "s|^MISP_KEY=.*|MISP_KEY=$$key|" $(OCTI_ENV); \
-	  echo "  MISP_KEY posée dans $(OCTI_ENV) — à reporter dans la configuration des outils d'alimentation"
-	./.venv/bin/python provisioning/misp_org.py
-	@echo "→ ensuite : make opencti-up puis make bridge-setup"
-
 # Adresse de contact du compte Let's Encrypt (avis d'expiration). Obligatoire
 # pour `make cert-manuel`.
 CERT_EMAIL ?=
@@ -439,39 +426,12 @@ proxy-ca: ## EXPORTE la racine mkcert de l'autorité locale, à installer une fo
 proxy-logs: ## Suit les journaux de la façade HTTPS
 	$(RUN) '$(OCTI) logs -f proxy'
 
-.PHONY: adressage
-adressage: ## ÉMET l'adressage qu'un outil d'alimentation doit connaître (ARGS=--secrets pour le fragment .env réel)
-	@$(PY) provisioning/adressage.py $(ARGS)
-
-.PHONY: cle-automation
-cle-automation: ## CRÉE une clé d'automation MISP dédiée, qui survit à misp-setup (ARGS=--lister | --env | --commentaire '…')
-	@$(PY) provisioning/misp_cle_automation.py $(ARGS)
-
 .PHONY: venv
 venv: ## Crée l'environnement Python (.venv) des outils de la plateforme
 	$(PY) -m venv .venv
 	./.venv/bin/pip install -q -U pip -r provisioning/requirements.txt
 	@echo "→ activer avec: source .venv/bin/activate"
 
-
-.PHONY: diag-rootless
-diag-rootless: ## DIAGNOSTIQUE l'hôte (rootless, pilote de stockage, MinIO, ports privilégiés) — ne modifie rien
-	bash provisioning/diag_rootless.sh
-
-.PHONY: minio-droits
-minio-droits: ## RÉPARE les droits du volume de fichiers MinIO quand il refuse d'écrire (ARGS=<uid>:<gid>)
-	@# Un volume Docker neuf appartient à root:root. Si le processus MinIO de
-	@# l'image tourne sous un autre compte — image récente, démon en mode
-	@# rootless, ou remappage d'espace de noms utilisateur — il ne peut rien y
-	@# écrire et rend « file access denied, drive may be faulty ». La reprise en
-	@# main se fait par un conteneur root jetable : elle ne demande AUCUN droit
-	@# root sur l'hôte, l'appartenance au groupe docker suffit.
-	@vol=$$(docker volume ls -q --filter name=opencti_fichiers | head -1); \
-	test -n "$$vol" || { echo "volume opencti_fichiers absent — rien à réparer"; exit 1; }; \
-	cible=$${ARGS:-$$(docker image inspect $$(docker compose -p cti-platform-opencti --project-directory $(PWD)/opencti --env-file $(PWD)/opencti/.env -f $(PWD)/opencti/docker-compose.yml config --images 2>/dev/null | grep -i minio | head -1) --format '{{.Config.User}}' 2>/dev/null)}; \
-	cible=$${cible:-0:0}; \
-	echo "appropriation de $$vol par $$cible"; \
-	docker run --rm -v $$vol:/data alpine:3 sh -c "chown -R $$cible /data && ls -ld /data"
 
 .PHONY: opencti-up
 opencti-up: ## démarre le stack OpenCTI (Phase 4) — ~12 Go RAM
@@ -574,6 +534,10 @@ ciso-up: ## DÉMARRE CISO-Assistant (GRC) — à côté de MISP/OpenCTI, aucun �
 ciso-superuser: ## CRÉE le premier compte admin CISO-Assistant (interactif, une fois)
 	$(RUN) '$(CISO) exec backend python manage.py createsuperuser'
 
+.PHONY: ciso-down
+ciso-down: ## arrête CISO-Assistant (volumes conservés)
+	$(RUN) '$(CISO) down'
+
 .PHONY: ciso-destroy
 ciso-destroy: ## Arrête CISO-Assistant ET supprime ses volumes (base, Qdrant)
 	$(RUN) '$(CISO) down -v'
@@ -589,8 +553,3 @@ ciso-ps: ## état des conteneurs CISO-Assistant
 .PHONY: opencti-ps
 opencti-ps: ## état des conteneurs OpenCTI
 	$(RUN) '$(OCTI) ps'
-
-
-.PHONY: taxii-check
-taxii-check: ## teste la collection TAXII 2.1 avec un client standard (pagination, validité STIX, intégrité des refs)
-	./.venv/bin/python provisioning/taxii_check.py $(ARGS)
