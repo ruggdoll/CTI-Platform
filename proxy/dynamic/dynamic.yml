@@ -27,6 +27,27 @@ http:
       service: opencti
       tls: {}
 
+    # CISO-Assistant est optionnelle (make ciso-up) : ces deux routeurs
+    # n'existent dans la config rendue que si CISO_HOSTNAME est non vide —
+    # if/end d'un gabarit Go, évalué avant le parseur YAML (qui ne voit
+    # jamais de commentaire : tout le fichier est du texte pour Traefik).
+    {{ if env "CISO_HOSTNAME" }}
+    ciso-api:
+      # Priorité explicite : /api doit gagner sur la route racine ci-dessous.
+      rule: 'Host(`{{ env "CISO_HOSTNAME" }}`) && PathPrefix(`/api`)'
+      entryPoints: [websecure]
+      service: ciso-backend
+      priority: 10
+      tls: {}
+
+    ciso:
+      rule: 'Host(`{{ env "CISO_HOSTNAME" }}`)'
+      entryPoints: [websecure]
+      service: ciso-frontend
+      priority: 1
+      tls: {}
+    {{ end }}
+
   services:
     misp:
       loadBalancer:
@@ -43,6 +64,18 @@ http:
           # réponses en flux par défaut, rien à régler (un nginx demanderait
           # proxy_buffering off).
           - url: "http://opencti:8080"
+
+    {{ if env "CISO_HOSTNAME" }}
+    ciso-backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8000"
+
+    ciso-frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"
+    {{ end }}
 
 tls:
   certificates:

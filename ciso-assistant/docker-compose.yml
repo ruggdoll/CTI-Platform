@@ -1,0 +1,115 @@
+# CISO-Assistant — GRC (risques, conformité, audits), à côté de MISP/OpenCTI.
+# Aucun échange de données avec les deux autres piles pour l'instant : sert
+# uniquement sous sa propre identité derrière la façade Traefik de la pile
+# OpenCTI (réseau `default` de CE projet, rejoint en externe par `proxy`).
+#
+# Dérivé du docker-compose.yml amont (intuitem/ciso-assistant-community
+# v4.0.6), avec :
+#   - Caddy et mcp retirés : Traefik fait déjà office de façade, mcp (serveur
+#     pour orchestrateurs IA externes) est optionnel et hors périmètre ici.
+#   - `./db` bind-mount -> volume Docker nommé `ciso_bdd` : l'image tourne en
+#     UID 1001 non-root ; un bind-mount réclame un chown manuel de l'hôte
+#     (fait par le docker-compose.sh amont), un volume nommé s'initialise seul.
+#   - `container_name:` retirés : ce projet ne les fixe jamais à la main
+#     ailleurs (collision possible entre plusieurs piles sur le même hôte).
+#   - `pull_policy: always` retiré : l'image est déjà épinglée par tag exact.
+#   - DJANGO_DEBUG=False partout (amont le laisse à True sur `backend`).
+#   - `qdrant` : plus de port publié sur l'hôte, seul `backend`/`huey` le
+#     joignent, par le réseau du projet.
+services:
+
+  backend:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
+    image: ghcr.io/intuitem/ciso-assistant-community/backend:v4.0.6
+    restart: always
+    environment:
+      - ALLOWED_HOSTS=backend,${CISO_HOSTNAME:-localhost}
+      - CISO_ASSISTANT_URL=https://${CISO_HOSTNAME:-localhost}
+      - DJANGO_DEBUG=False
+      - AUTH_TOKEN_TTL=7200
+      - HOME=/tmp
+      - XDG_CACHE_HOME=/tmp/.cache
+      - XDG_CONFIG_HOME=/tmp/.config
+      - XDG_DATA_HOME=/tmp/.local/share
+      - QDRANT_URL=http://qdrant:6333
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    volumes:
+      - ciso_bdd:/code/db
+    user: "1001:1001"
+    healthcheck:
+      # start_period généreux : premier démarrage = ~200 migrations Django
+      # d'affilée sur SQLite, ~10-15 min CONSTATÉES sur cette machine (4 cœurs,
+      # MISP+OpenCTI déjà en charge) — le défaut amont (150s) déclare le
+      # conteneur en échec bien avant la fin, alors qu'il progresse toujours.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://backend:8000/api/health/', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 1200s
+
+  huey:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
+    image: ghcr.io/intuitem/ciso-assistant-community/backend:v4.0.6
+    depends_on: {backend: {condition: service_healthy}}
+    restart: always
+    environment:
+      - ALLOWED_HOSTS=backend,${CISO_HOSTNAME:-localhost}
+      - CISO_ASSISTANT_URL=https://${CISO_HOSTNAME:-localhost}
+      - DJANGO_DEBUG=False
+      - AUTH_TOKEN_TTL=7200
+      - HOME=/tmp
+      - XDG_CACHE_HOME=/tmp/.cache
+      - XDG_CONFIG_HOME=/tmp/.config
+      - XDG_DATA_HOME=/tmp/.local/share
+      - QDRANT_URL=http://qdrant:6333
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    volumes:
+      - ciso_bdd:/code/db
+    entrypoint: ["/bin/sh", "-c", "python manage.py run_huey -w 2 --scheduler-interval 60"]
+    user: "1001:1001"
+
+  frontend:
+    stop_grace_period: ${STOP_GRACE_APP:-30s}
+    image: ghcr.io/intuitem/ciso-assistant-community/frontend:v4.0.6
+    restart: always
+    depends_on: {backend: {condition: service_healthy}}
+    environment:
+      - PUBLIC_BACKEND_API_URL=http://backend:8000/api
+      - PUBLIC_BACKEND_API_EXPOSED_URL=https://${CISO_HOSTNAME:-localhost}/api
+      # Traefik pose ces en-têtes par défaut en proxifiant : rien à régler côté façade.
+      - PROTOCOL_HEADER=x-forwarded-proto
+      - HOST_HEADER=x-forwarded-host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+
+  qdrant:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
+    image: qdrant/qdrant:v1.19.1
+    restart: unless-stopped
+    volumes:
+      - ciso_qdrant:/qdrant/storage
+
+networks:
+  default:
+    # Créé par `make init DOMAINE=…` (côté façade), pas par ce projet : le
+    # réseau doit survivre à un `make ciso-destroy`, sans quoi Traefik (qui le
+    # rejoint depuis le projet OpenCTI) se retrouve orphelin.
+    external: true
+    name: cti-platform-ciso_default
+
+volumes:
+  ciso_bdd:
+    name: ciso_bdd
+  ciso_qdrant:
+    name: ciso_qdrant

@@ -389,13 +389,22 @@ services:
     environment:
       MISP_HOSTNAME: ${MISP_HOSTNAME:-}
       OPENCTI_HOSTNAME: ${OPENCTI_HOSTNAME:-}
+      # 3e identité, optionnelle : la pile CISO-Assistant, à côté de MISP et
+      # OpenCTI (aucun échange de données entre elles). Vide si non déployée —
+      # dynamic.yml omet alors entièrement ses routeurs (gabarit Go, {{ if }}).
+      CISO_HOSTNAME: ${CISO_HOSTNAME:-}
       # Par défaut : certificat mkcert (autorité locale, `make proxy-cert`).
       # Renseignés par `make cert-manuel` pour un certificat public à la place.
       PROXY_TLS_CERT: ${PROXY_TLS_CERT:-}
       PROXY_TLS_KEY: ${PROXY_TLS_KEY:-}
     volumes:
-      - {type: bind, source: ../proxy/traefik.yml, target: /etc/traefik/traefik.yml, read_only: true}
-      - {type: bind, source: ../proxy/dynamic.yml, target: /etc/traefik/dynamic/dynamic.yml, read_only: true}
+      # Dossier entier, pas fichier par fichier : un bind-mount d'un FICHIER
+      # unique se détache si l'édition le remplace par rename (sed -i, vim,
+      # tout éditeur « écriture atomique ») — le conteneur garde alors l'ancien
+      # inode et ignore les changements jusqu'à sa recréation (constaté en
+      # développant le routage CISO-Assistant, 2026-09-24). Un bind-mount de
+      # DOSSIER n'a pas ce problème : il résout le chemin à chaque accès.
+      - {type: bind, source: ../proxy, target: /etc/traefik, read_only: true}
       # Certificat mkcert par défaut (autorité locale posée sur l'hôte, hors de
       # Docker — voir `make proxy-cert` / `make proxy-ca`), lu en lecture
       # seule : la façade le sert, elle ne le fabrique pas.
@@ -405,7 +414,7 @@ services:
       - {type: bind, source: ../proxy/certs, target: /certs-mkcert, read_only: true}
       # Certificat public éventuel, écrit par certbot dans ce volume.
       - {type: volume, source: certbot, target: /certs, read_only: true}
-    networks: [default, misp]
+    networks: [default, misp, ciso]
 
 networks:
   default:
@@ -414,6 +423,14 @@ networks:
     # c'est par là que les deux connecteurs joignent misp-core.
     external: true
     name: cti-platform-misp_default
+  ciso:
+    # réseau de la pile CISO-Assistant (CISO_PROJECT dans le Makefile), créé
+    # par `make init DOMAINE=…` — pas par ce projet ni par ciso-assistant/,
+    # justement pour que ni l'un ni l'autre ne puisse le faire disparaître
+    # sous les pieds de l'autre. Vide (aucun conteneur) tant que
+    # `make ciso-up` n'a pas tourné : ne coûte rien à exister.
+    external: true
+    name: cti-platform-ciso_default
 
 # Noms de volumes explicites (pas de préfixe hérité du nom de projet compose) :
 # lisibles tels quels dans `docker volume ls`, par produit et par rôle.

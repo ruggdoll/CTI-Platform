@@ -28,6 +28,7 @@ endif
 # (vendor/misp-docker), donc ses chemins relatifs (./configs, ./logs…) restent bons.
 MISP_PROJECT  := cti-platform-misp
 OCTI_PROJECT  := cti-platform-opencti
+CISO_PROJECT  := cti-platform-ciso
 
 COMPOSE := CTI_PLATFORM_ROOT=$(CURDIR) docker compose -p $(MISP_PROJECT) --env-file $(ENV_FILE) \
 	-f $(DOCKER_DIR)/docker-compose.yml -f compose.tuning.yml
@@ -39,6 +40,11 @@ PROFIL_PROXY := $(shell grep -qsE '^MISP_HOSTNAME=.+' $(CURDIR)/opencti/.env && 
 
 OCTI := docker compose -p $(OCTI_PROJECT) --project-directory $(CURDIR)/opencti \
 	--env-file $(CURDIR)/opencti/.env $(PROFIL_PROXY) -f $(CURDIR)/opencti/docker-compose.yml
+
+# CISO-Assistant : 3e pile, indépendante (pas de profil, pas de connecteur
+# croisé) — comme MISP et OpenCTI, un projet compose à elle seule.
+CISO := docker compose -p $(CISO_PROJECT) --project-directory $(CURDIR)/ciso-assistant \
+	--env-file $(CURDIR)/ciso-assistant/.env -f $(CURDIR)/ciso-assistant/docker-compose.yml
 
 .DEFAULT_GOAL := help
 
@@ -73,11 +79,15 @@ DOMAINE ?=
 ifneq ($(DOMAINE),)
 MISP_HOSTNAME    ?= misp.$(DOMAINE)
 OPENCTI_HOSTNAME ?= opencti.$(DOMAINE)
+# CISO-Assistant (GRC) : 3e identité, à côté des deux autres, sans échange de
+# données avec elles. Optionnelle — `make ciso-up` la démarre, quand voulu.
+CISO_HOSTNAME    ?= ciso.$(DOMAINE)
 HOST             := $(MISP_HOSTNAME)
 endif
 
 HOST ?= $(shell hostname -f 2>/dev/null || echo localhost)
 OCTI_ENV := opencti/.env
+CISO_ENV := ciso-assistant/.env
 
 # URL publiques affichées. En mode proxy, OpenCTI n'est plus sur un port mais
 # sur sa propre identité en 443 — l'annoncer faux enverrait l'exploitant sur
@@ -85,6 +95,7 @@ OCTI_ENV := opencti/.env
 ifneq ($(DOMAINE),)
 URL_MISP = https://$(MISP_HOSTNAME)
 URL_OCTI = https://$(OPENCTI_HOSTNAME)
+URL_CISO = https://$(CISO_HOSTNAME)
 else
 URL_MISP = https://$(HOST)
 URL_OCTI = http://$(HOST):8080
@@ -214,15 +225,22 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	    sed -i "s|^OPENCTI_HOST=.*|OPENCTI_HOST=$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
 	    sed -i "s|^OPENCTI_EXTERNAL_SCHEME=.*|OPENCTI_EXTERNAL_SCHEME=https|" "$(OCTI_ENV)"; \
 	    sed -i "s|^OPENCTI_BASE_URL=.*|OPENCTI_BASE_URL=https://$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
-	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
 	      "$(DOMAINE)" "MISP_HOSTNAME=$(MISP_HOSTNAME)" "OPENCTI_HOSTNAME=$(OPENCTI_HOSTNAME)" \
 	      "PROXY_BIND=0.0.0.0" "PROXY_HTTP_PORT=80" "PROXY_HTTPS_PORT=443" \
-	      "PROXY_TLS_CERT=/certs-mkcert/cert.pem" "PROXY_TLS_KEY=/certs-mkcert/key.pem" >> "$(OCTI_ENV)"; \
+	      "PROXY_TLS_CERT=/certs-mkcert/cert.pem" "PROXY_TLS_KEY=/certs-mkcert/key.pem" \
+	      "CISO_HOSTNAME=$(CISO_HOSTNAME)" >> "$(OCTI_ENV)"; \
 	    command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert (ou relancer prepare_host.sh --domaine)"; exit 1; }; \
 	    TRUST_STORES=none mkcert -install >/dev/null; \
-	    TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$(MISP_HOSTNAME)" "$(OPENCTI_HOSTNAME)"; \
+	    TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$(MISP_HOSTNAME)" "$(OPENCTI_HOSTNAME)" "$(CISO_HOSTNAME)"; \
 	  fi; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(HOST), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
+	fi
+	@if [ -n "$(DOMAINE)" ]; then \
+	  if [ -f "$(CISO_ENV)" ]; then echo "  $(CISO_ENV) existe déjà — inchangé."; else \
+	    printf '%s\n' "CISO_HOSTNAME=$(CISO_HOSTNAME)" > "$(CISO_ENV)"; \
+	    echo "  $(CISO_ENV) généré — 'make ciso-up' pour démarrer CISO-Assistant (optionnel)"; \
+	  fi; \
 	fi
 	@if [ -n "$(DOMAINE)" ]; then \
 	  echo "  Proxy inverse : https://$(MISP_HOSTNAME) et https://$(OPENCTI_HOSTNAME)"; \
@@ -327,19 +345,21 @@ cert-etat: ## Échéance du certificat public servi par la façade
 	  | grep -E "Certificate Name|Domains|Expiry Date" || echo "  aucun certificat public (autorité locale mkcert)"
 
 .PHONY: proxy-up
-proxy-up: ## DÉMARRE la façade HTTPS seule (crée le réseau OpenCTI au passage)
+proxy-up: ## DÉMARRE la façade HTTPS seule (crée les réseaux OpenCTI/CISO au passage)
 	@grep -qsE '^MISP_HOSTNAME=.+' "$(OCTI_ENV)" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 0; }
+	@grep -qsE '^CISO_HOSTNAME=.+' "$(CISO_ENV)" 2>/dev/null && $(RUN) 'docker network create cti-platform-ciso_default' >/dev/null 2>&1; true
 	$(RUN) '$(OCTI) up -d proxy'
 
 .PHONY: proxy-cert
 proxy-cert: ## RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) — noms changés, expiration
 	@misp=$$(grep -E '^MISP_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
 	 octi=$$(grep -E '^OPENCTI_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
+	 ciso=$$(grep -E '^CISO_HOSTNAME=' "$(CISO_ENV)" 2>/dev/null | cut -d= -f2); \
 	 test -n "$$misp" -a -n "$$octi" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 1; }; \
 	 command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert"; exit 1; }; \
 	 TRUST_STORES=none mkcert -install >/dev/null; \
-	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$misp" "$$octi"; \
-	 echo "  certificat régénéré pour $$misp et $$octi (proxy/certs/)"; \
+	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$misp" "$$octi" $${ciso:+"$$ciso"}; \
+	 echo "  certificat régénéré pour $$misp, $$octi$${ciso:+, $$ciso} (proxy/certs/)"; \
 	 echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
 
 .PHONY: proxy-ca
@@ -426,17 +446,18 @@ opencti-stop: ## ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CON
 	$(RUN) '$(OCTI) --profile feeds stop -t $(STOP_TIMEOUT)'
 
 .PHONY: stop-all
-stop-all: ## ARRÊT PROPRE des deux piles, OpenCTI d'abord (il consomme MISP)
+stop-all: ## ARRÊT PROPRE des piles, OpenCTI d'abord (il consomme MISP), CISO-Assistant en plus si présente
 	@# CHEMIN D'ARRÊT : il doit aboutir même si une pile bronche. Un conteneur
 	@# qui s'est déjà arrêté seul fait sortir `compose stop` en erreur
 	@# (« cannot stop container: … is not running ») ; quand les deux piles
 	@# étaient des PRÉREQUIS make, cette erreur interrompait la cible et la
 	@# pile MISP n'était jamais arrêtée du tout. Les `-` sont donc délibérés :
-	@# on veut arrêter la seconde pile même si la première a protesté, et
-	@# rendre la main en succès pour que systemd ne compte pas l'unité en échec.
+	@# on veut arrêter chaque pile même si une autre a protesté, et rendre la
+	@# main en succès pour que systemd ne compte pas l'unité en échec.
 	-$(RUN) '$(OCTI) --profile feeds stop -t $(STOP_TIMEOUT)'
 	-$(RUN) '$(COMPOSE) stop -t $(STOP_TIMEOUT)'
-	@echo "  les deux piles sont arrêtées ; les conteneurs existent toujours et"
+	-[ -f "$(CISO_ENV)" ] && $(RUN) '$(CISO) stop -t $(STOP_TIMEOUT)'
+	@echo "  les piles sont arrêtées ; les conteneurs existent toujours et"
 	@echo "  repartiront au prochain démarrage du démon (restart: always)."
 
 .PHONY: autostart
@@ -472,6 +493,30 @@ opencti-destroy: ## Arrête OpenCTI ET supprime ses volumes (ES, MinIO, RabbitMQ
 .PHONY: opencti-logs
 opencti-logs: ## suit les logs OpenCTI
 	$(RUN) '$(OCTI) logs -f --tail=100'
+
+.PHONY: ciso-up
+ciso-up: ## DÉMARRE CISO-Assistant (GRC) — à côté de MISP/OpenCTI, aucun échange de données
+	@grep -qsE '^CISO_HOSTNAME=.+' "$(CISO_ENV)" 2>/dev/null || { echo "  pas de façade configurée pour CISO-Assistant (make init DOMAINE=<domaine>)"; exit 1; }
+	@$(RUN) 'docker network create cti-platform-ciso_default' >/dev/null 2>&1; true
+	@# L'image tourne en UID 1001 non-root ; un volume Docker NEUF appartient à
+	@# root tant que rien ne l'a peuplé. `docker run` root, une fois, idempotent.
+	$(RUN) 'docker run --rm -v ciso_bdd:/code/db --user root --entrypoint /bin/sh \
+	  ghcr.io/intuitem/ciso-assistant-community/backend:v4.0.6 -c "chown -R 1001:1001 /code/db"'
+	$(RUN) '$(CISO) up -d'
+	@echo "  → https://$$(grep -E '^CISO_HOSTNAME=' "$(CISO_ENV)" | cut -d= -f2) — premier accès : make ciso-superuser"
+	@echo "  premier démarrage LENT (migrations) : make ciso-logs pour suivre"
+
+.PHONY: ciso-superuser
+ciso-superuser: ## CRÉE le premier compte admin CISO-Assistant (interactif, une fois)
+	$(RUN) '$(CISO) exec backend python manage.py createsuperuser'
+
+.PHONY: ciso-destroy
+ciso-destroy: ## Arrête CISO-Assistant ET supprime ses volumes (base, Qdrant)
+	$(RUN) '$(CISO) down -v'
+
+.PHONY: ciso-logs
+ciso-logs: ## suit les logs CISO-Assistant
+	$(RUN) '$(CISO) logs -f --tail=100'
 
 .PHONY: opencti-ps
 opencti-ps: ## état des conteneurs OpenCTI
