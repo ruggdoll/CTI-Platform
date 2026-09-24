@@ -118,7 +118,7 @@ def run(c, needle, title, timeout, found):
     raise SystemExit(
         f"\néchec : {needle} n'est pas arrivé dans MISP en {timeout}s.\n"
         "Pistes : 'make bridge-setup' lancé ? conteneur connector-misp-intel recréé "
-        "depuis ('make opencti-up') ? logs : docker logs cti-platform-opencti-connector-misp-intel-1")
+        "depuis ('make up-cti') ? logs : docker logs cti-platform-opencti-connector-misp-intel-1")
 
 
 def main():

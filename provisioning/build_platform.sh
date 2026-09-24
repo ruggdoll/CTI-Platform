@@ -9,7 +9,7 @@
 # s'en souvenir.
 #
 # Idempotent : relançable sur une plateforme déjà partiellement construite.
-# Usage : make build HOST=<fqdn|ip>
+# Usage : make build-cti HOST=<fqdn|ip>
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -47,7 +47,7 @@ URL_OCTI=$(lire opencti/.env OPENCTI_BASE_URL)
 [ -n "$URL_OCTI" ] || URL_OCTI="$(lire opencti/.env OPENCTI_EXTERNAL_SCHEME)://$(lire opencti/.env OPENCTI_HOST):$(lire opencti/.env OPENCTI_PORT)"
 
 etape "2/9  Pile MISP"
-make --no-print-directory up
+make --no-print-directory _misp-up
 KEY=$(grep -E '^MISP_KEY=' opencti/.env | cut -d= -f2)
 attendre "API MISP" 900 bash -c \
   "curl -sk -H 'Authorization: $KEY' -H 'Accept: application/json' \
@@ -58,7 +58,7 @@ attendre "API MISP" 900 bash -c \
 # que par elle dès lors que les piles sont repliées sur la boucle locale.
 # `compose up -d proxy` crée le réseau du projet OpenCTI (et celui de
 # CISO-Assistant, si CISO_HOSTNAME est renseigné, pour que sa façade soit prête
-# le jour où on la démarre — 'make build' ne la construit jamais elle-même,
+# le jour où on la démarre — 'make build-cti' ne la construit jamais elle-même,
 # voir plus bas) au passage ; le reste de la pile suivra à l'étape 5/9.
 if grep -qsE '^MISP_HOSTNAME=.+' opencti/.env; then
   etape "2 bis/9  Façade HTTPS"
@@ -74,7 +74,7 @@ etape "4/9  Socle MISP (galaxies, taxonomies, warninglists)"
 make --no-print-directory socle-misp
 
 etape "5/9  Pile OpenCTI + socle ATT&CK"
-make --no-print-directory opencti-up
+make --no-print-directory _opencti-up
 attendre "API OpenCTI" 1800 bash -c \
   "curl -sk -o /dev/null -w '%{http_code}' $SONDE_OCTI/graphql | grep -qE '200|400|405'"
 echo "  chargement de l'ATT&CK (sans concurrence) — cela prend plusieurs minutes"
@@ -86,7 +86,7 @@ fi
 
 etape "6/9  Pont OpenCTI -> MISP"
 make --no-print-directory bridge-setup
-make --no-print-directory opencti-up
+make --no-print-directory _opencti-up
 
 etape "7/9  Socle OpenCTI (rapports STIX publics VIGINUM)"
 $PY provisioning/opencti_socle.py --yes
@@ -110,9 +110,9 @@ echo "  OpenCTI : $URL_OCTI"
 # CISO-Assistant (GRC) est un produit SÉPARÉ, hors du périmètre de cette
 # plateforme : aucune donnée échangée avec MISP/OpenCTI, un public souvent
 # plus large (audit, direction), des exigences de rétention différentes.
-# 'make build' ne la construit donc jamais — 'make ciso-up' la démarre
+# 'make build-cti' ne la construit donc jamais — 'make up-ciso' la démarre
 # volontairement, à part, quand on le décide.
 if grep -qsE '^CISO_HOSTNAME=.+' ciso-assistant/.env 2>/dev/null; then
-  echo "  CISO-Assistant (GRC) : façade prête, pas démarrée — make ciso-up (produit séparé)"
+  echo "  CISO-Assistant (GRC) : façade prête, pas démarrée — make up-ciso (produit séparé)"
 fi
 echo "  Contrôle de bout en bout : make bridge-test"

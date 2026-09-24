@@ -56,7 +56,7 @@ Puis, en tant que ce compte :
 
 ```bash
 git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform ~/CTI-Platform
-cd ~/CTI-Platform && make build HOST=<fqdn>
+cd ~/CTI-Platform && make build-cti HOST=<fqdn>
 ```
 
 ## 1. Récupération
@@ -109,8 +109,14 @@ d'environnement `OPENCTI_URL`, `OPENCTI_TOKEN`, `MISP_URL`, `MISP_KEY`.
 
 ## 3. Démarrage
 
+`make build-cti` (voir plus haut) enchaîne automatiquement tout ce qui suit,
+dans l'ordre, avec les attentes entre chaque étape — ce qui suit détaille ce
+qu'il fait, pour qui veut comprendre ou reprendre une étape à la main.
+`_misp-up`/`_opencti-up` sont les cibles internes qu'il appelle (préfixe `_`
+= pas dans `make help`, mais des cibles `make` normales, utilisables) :
+
 ```bash
-make up          # 1er lancement : pull + build, 5-10 min
+make _misp-up    # 1er lancement : pull + build, 5-10 min
 make logs        # attendre "MISP is ready" / healthcheck OK
 make ps
 ```
@@ -126,9 +132,9 @@ certificat au nom de `HOST` dans `vendor/misp-docker/ssl/` (`cert.pem`,
 
 ```bash
 make venv          # environnement Python (une fois)
-make opencti-up    # OpenCTI sur http://<HOST>:8080 (~12 Go RAM, 1er boot 5-10 min)
+make _opencti-up   # OpenCTI sur http://<HOST>:8080 (~12 Go RAM, 1er boot 5-10 min)
 make bridge-setup  # label export-misp + live stream OpenCTI -> MISP + .env
-make opencti-up    # recrée connector-misp-intel avec l'id du stream
+make _opencti-up   # recrée connector-misp-intel avec l'id du stream
 ```
 
 `make bridge-setup` (`provisioning/bridge_setup.py`, idempotent) est l'étape qui
@@ -152,7 +158,7 @@ Anti-boucle : les events créés par le pont retour sortent en distribution 1 et
 
 La clé admin se régénère depuis l'interface MISP (Administration → Users →
 l'utilisateur admin → « change auth key »), puis se reporte à la main dans
-`opencti/.env` (`MISP_KEY`) et `make opencti-up` recrée les connecteurs.
+`opencti/.env` (`MISP_KEY`) et `make _opencti-up` recrée les connecteurs.
 
 Les outils Python lisent les `.env` via `provisioning/_config.py` — rien à
 exporter dans le shell ; pour une exécution ponctuelle avec d'autres
@@ -189,7 +195,7 @@ son `--shutdown-timeout` par défaut de **15 secondes**. C'est trop court pour
 MariaDB, qui doit vider son buffer pool, et pour Elasticsearch, qui doit
 écrire son translog : tués en pleine écriture, ils repartent en récupération.
 
-`make autostart` (posé par `make build`, étape 9/9) installe une unité systemd
+`make autostart` (posé par `make build-cti`, étape 9/9) installe une unité systemd
 utilisateur ordonnée **après** le démon — donc arrêtée **avant** lui — dont
 l'`ExecStop` lance `make stop-all` pendant que dockerd répond encore.
 Deux délais, à ne pas confondre — les confondre revient à croire le problème
@@ -198,7 +204,7 @@ réglé alors qu'il ne l'est pas :
 | Réglage | Ce qu'il borne | Défaut |
 |---|---|---|
 | `STOP_GRACE_DATA` / `STOP_GRACE_APP` | le sursis de chaque conteneur **sur tout chemin d'arrêt**, déclaré en `stop_grace_period` dans les compose | 120 s / 30 s |
-| `STOP_TIMEOUT` | le même sursis, mais pour le seul appel `make stop` / `stop-all` (`compose stop -t`) | 120 s |
+| `STOP_TIMEOUT` | le même sursis, mais pour le seul appel `down-cti`/`down-ciso`/`stop-all` (`compose stop -t`) | 120 s |
 | `AUTOSTART_TIMEOUT` | la durée **totale** de l'arrêt, `TimeoutStopSec` de l'unité | 300 s |
 | drop-in `user@<uid>.service` | le plafond du gestionnaire de session, posé par `prepare_host.sh` | 300 s |
 
@@ -215,18 +221,18 @@ politique `restart` d'un conteneur arrêté explicitement que **jusqu'au
 redémarrage du démon**. Au démarrage de la machine, le linger relance la
 session, donc le démon, qui relance tout ce qui est en `restart: always`.
 
-`make autostart-off` retire l'unité. `make stop-all` s'utilise aussi à la main
+`make autostart-off` retire l'unité. `make stop-all` (ou `down-cti`/`down-ciso`) s'utilise aussi à la main
 avant une intervention.
 
 ## 5 ter. Deux identités derrière un proxy inverse
 
 Par défaut, chaque pile publie ses propres ports : MISP en 443, OpenCTI en
-8080, sous un seul nom. `make build DOMAINE=<domaine>` met à la place une
+8080, sous un seul nom. `make build-cti DOMAINE=<domaine>` met à la place une
 **façade HTTPS** devant les deux, sous deux identités :
 
 ```bash
 sudo provisioning/prepare_host.sh --user cti-platform --domaine here.local
-make build DOMAINE=here.local
+make build-cti DOMAINE=here.local
 make proxy-ca        # exporte la racine à installer sur les postes clients
 ```
 
@@ -237,7 +243,7 @@ make proxy-ca        # exporte la racine à installer sur les postes clients
 
 Un 3e nom, `https://ciso.here.local`, rejoint la même façade dès que
 [CISO-Assistant](#5-quater-ciso-assistant-grc) est démarrée — volontairement,
-`make ciso-up`, pas `make build`.
+`make up-ciso`, pas `make build-cti`.
 
 Les deux piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI
 en 8080) ; la façade tient 80 et 443 et les joint par le réseau Docker. Elle est
@@ -260,7 +266,7 @@ Caddy, qu'il remplace ici. La façade sert donc un certificat **mkcert**
 qui signe un certificat **joker** (`<domaine>` et `*.<domaine>`) — un seul
 certificat pour toute identité présente ou future sous ce domaine, sans énumérer
 `misp.`, `opencti.`, `ciso.` un par un ni en régénérer un à chaque ajout.
-`make init`/`make build DOMAINE=…` génère l'autorité (si absente) et le
+`make init`/`make build-cti DOMAINE=…` génère l'autorité (si absente) et le
 certificat en un geste ; `make proxy-cert` régénère seulement le certificat
 (expiration — le domaine ne change pas plus souvent que HOST). Le seul geste
 côté poste client est d'importer la racine une fois (`make proxy-ca`), après
@@ -269,7 +275,7 @@ quoi `MISP_VERIFY_SSL` peut passer à `1`.
 L'autorité vit dans le magasin mkcert de l'utilisateur qui déploie
 (`mkcert -CAROOT`, hors de Docker) et le certificat dans `proxy/certs/` (bind
 monté en lecture seule dans le conteneur, jamais versionné) : **ni l'un ni
-l'autre ne vit dans un volume Docker.** `make destroy` ne détruit donc plus
+l'autre ne vit dans un volume Docker.** `make destroy-cti` ne détruit donc plus
 l'autorité — c'est le point faible qu'avait Caddy (racine régénérée
 silencieusement au redémarrage, constaté le 2026-09-19 : empreinte servie
 différente de celle approuvée trois jours plus tôt sur les postes clients).
@@ -310,7 +316,7 @@ PROXY_TLS_KEY=/certs/live/<domaine>/privkey.pem
 ```
 
 ```bash
-make opencti-up      # recrée la façade avec le certificat public
+make _opencti-up     # recrée la façade avec le certificat public
 make cert-etat       # échéance du certificat servi
 ```
 
@@ -333,7 +339,7 @@ Ce dépôt embarque aussi le compose de
 risques, conformité, audits), un troisième outil à côté de MISP/OpenCTI, sur
 le même hôte et la même façade par commodité — mais avec un cycle de vie
 propre : elle n'échange aucune donnée avec MISP ou OpenCTI (ni pont, ni
-socle, ni adressage partagé), et `make build`/`make destroy` ne la touchent
+socle, ni adressage partagé), et `make build-cti`/`make destroy-cti` ne la touchent
 jamais.
 
 Elle n'existe qu'en mode façade (`DOMAINE=…`) : sa pile amont ne publie aucun
@@ -341,13 +347,13 @@ port, elle n'est joignable que par nom derrière Traefik — une contrainte de
 l'image, pas un réglage de ce dépôt. `make init DOMAINE=<domaine>` écrit
 `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` (couvert d'office
 par le certificat joker de la façade), mais rien ne la démarre toute seule —
-`make ciso-up` le fait, volontairement, à part. Le routeur Traefik
+`make up-ciso` le fait, volontairement, à part. Le routeur Traefik
 correspondant (`proxy/dynamic/dynamic.yml`, un gabarit Go) ne se rend que si
 `CISO_HOSTNAME` est non vide — le retirer du fichier suffit à désactiver la
 façade CISO sans toucher au reste.
 
 ```bash
-make ciso-up   # démarre la pile (backend, huey, frontend, qdrant) — premier
+make up-ciso   # démarre la pile (backend, huey, frontend, qdrant) — premier
                #   démarrage LENT : ~200 migrations Django, 10-15 min
                #   constatées sur une machine déjà chargée par MISP+OpenCTI
                #   (healthcheck réglé en conséquence)
@@ -356,10 +362,10 @@ make ciso-up   # démarre la pile (backend, huey, frontend, qdrant) — premier
 Puis, une fois la pile en ligne : `make ciso-superuser` (interactif, premier
 compte admin) ; `make ciso-logs` pour suivre la progression au premier plan.
 
-Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-down`
-l'arrête en les conservant, `make ciso-destroy` les détruit avec les
-conteneurs (**perte totale**) — jamais entraînés par `make destroy`/
-`make opencti-destroy`. `make stop-all` l'arrête proprement avec les deux
+Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make down-ciso`
+l'arrête en les conservant, `make destroy-ciso` les détruit avec les
+conteneurs (**perte totale**) — jamais entraînés par `make destroy-cti`.
+`make stop-all` l'arrête proprement avec les deux
 autres piles si elle est présente (simple courtoisie à l'extinction, pas un
 couplage de cycle de vie) ; `make ciso-ps` en donne l'état.
 
@@ -369,7 +375,7 @@ couplage de cycle de vie) ; `make ciso-ps` en donne l'état.
 cd vendor/misp-docker && git pull && cd ../..
 git add vendor/misp-docker && git commit -m "bump misp-docker"
 # ajuster CORE_TAG / MODULES_TAG dans vendor/misp-docker/.env si besoin
-make down && make up
+make down-cti && make up-cti
 ```
 
 ## Serveur : ingérer les mises à jour de rapports
@@ -418,7 +424,7 @@ Pour un contenu courant de quelques dizaines de milliers d'indicateurs et
 d'observables, cela représente **plusieurs heures**, pendant lesquelles la
 machine est saturée et l'index Elasticsearch se fragmente.
 
-`make opencti-destroy` fait le même travail en **une trentaine de secondes**, et
+`make destroy-cti` fait le même travail en **une trentaine de secondes**, et
 rend une instance réellement neuve.
 
 **Donc : pour repartir de zéro, on détruit et on relève ; on ne vide pas.** La

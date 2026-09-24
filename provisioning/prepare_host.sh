@@ -11,7 +11,7 @@
 #
 # Puis, en tant que l'utilisateur créé :
 #   git clone --recurse-submodules <dépôt> ~/CTI-Platform && cd ~/CTI-Platform
-#   make build HOST=<fqdn>
+#   make build-cti HOST=<fqdn>
 #
 # Idempotent : relançable sur un hôte déjà préparé, il constate et n'abîme rien.
 #
@@ -253,6 +253,6 @@ echo "  $UTILISATEUR@ » ; JAMAIS sudo -u, qui ne donne ni XDG_RUNTIME_DIR ni bu
 echo "  systemd et laisse le client Docker muet. Puis :"
 echo
 echo "    git clone --recurse-submodules https://github.com/ruggdoll/CTI-Platform ~/CTI-Platform"
-echo "    cd ~/CTI-Platform && make build ${DOMAINE:+DOMAINE=$DOMAINE}${DOMAINE:-HOST=$NOM_PUBLIC}"
+echo "    cd ~/CTI-Platform && make build-cti ${DOMAINE:+DOMAINE=$DOMAINE}${DOMAINE:-HOST=$NOM_PUBLIC}"
 echo
 echo "  make init détectera le démon rootless et visera $RESOLU pour extra_hosts."

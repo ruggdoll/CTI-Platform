@@ -2,7 +2,7 @@
 
 Deux couches, dans cet ordre :
 
-  1. **MITRE ATT&CK** (connector-mitre, démarré par `make opencti-up`) : le
+  1. **MITRE ATT&CK** (connector-mitre, démarré par `make up-cti`) : le
      référentiel sur lequel se raccrochent tous les rapports par `external_id`
      T1xxx. `make attack-status` dit où il en est ; on n'enchaîne pas tant
      qu'il n'est pas complet.

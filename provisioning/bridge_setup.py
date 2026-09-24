@@ -13,7 +13,7 @@ Ce script est idempotent. Il :
   3. écrit son id dans `opencti/.env` (CONNECTOR_MISP_INTEL_STREAM_ID).
 
 Il reste ensuite à recréer le conteneur pour qu'il prenne l'id :
-    make opencti-up
+    make up-cti
 
 Usage : bridge_setup.py [--name NOM] [--dry-run]
 """
@@ -137,7 +137,7 @@ def main():
     print(f"  opencti/.env : CONNECTOR_MISP_INTEL_STREAM_ID={stream['id']}"
           f"{'' if changed else ' (inchangé)'}")
     if changed:
-        print("\n→ recréer le connecteur pour qu'il prenne l'id : make opencti-up")
+        print("\n→ recréer le connecteur pour qu'il prenne l'id : make up-cti")
 
 
 if __name__ == "__main__":

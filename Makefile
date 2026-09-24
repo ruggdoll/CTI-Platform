@@ -23,7 +23,7 @@ endif
 # conteneurs et aux réseaux ; les volumes, eux, portent un nom explicite fixé
 # dans les compose (misp_bdd, opencti_bdd…), donc lisible dans `docker volume ls`.
 # Changer ces noms sur une infra existante rend ses conteneurs orphelins : ne le
-# faire qu'après un `make destroy` + `make opencti-destroy`.
+# faire qu'après un `make destroy-cti` (ou `_misp-destroy` + `_opencti-destroy`).
 # Sans --project-directory côté MISP : le dossier projet = celui du 1er -f
 # (vendor/misp-docker), donc ses chemins relatifs (./configs, ./logs…) restent bons.
 MISP_PROJECT  := cti-platform-misp
@@ -43,7 +43,7 @@ OCTI := docker compose -p $(OCTI_PROJECT) --project-directory $(CURDIR)/opencti 
 
 # CISO-Assistant (GRC) : à côté de MISP/OpenCTI, cycle de vie à part — voir
 # CISO_HOSTNAME plus bas. Son propre projet compose, jamais dans le périmètre
-# de make build/destroy.
+# de make build-cti/destroy-cti.
 CISO := docker compose -p $(CISO_PROJECT) --project-directory $(CURDIR)/ciso-assistant \
 	--env-file $(CURDIR)/ciso-assistant/.env -f $(CURDIR)/ciso-assistant/docker-compose.yml
 
@@ -63,9 +63,9 @@ $(ENV_FILE):
 # FQDN de la machine, sinon localhost.
 # DEUX MODES DE PUBLICATION.
 #
-#   make build HOST=<fqdn|ip>     une seule façade : chaque pile publie ses
+#   make build-cti HOST=<fqdn|ip>  une seule façade : chaque pile publie ses
 #                                 propres ports (MISP en 443, OpenCTI en 8080).
-#   make build DOMAINE=<domaine>  un PROXY INVERSE devant les deux, sous deux
+#   make build-cti DOMAINE=<domaine>  un PROXY INVERSE devant les deux, sous deux
 #                                 identités : misp.<domaine> et opencti.<domaine>.
 #                                 Les piles n'écoutent plus que sur la boucle
 #                                 locale ; le proxy (Traefik) tient 80 et 443,
@@ -82,8 +82,9 @@ MISP_HOSTNAME    ?= misp.$(DOMAINE)
 OPENCTI_HOSTNAME ?= opencti.$(DOMAINE)
 # CISO-Assistant (GRC) : à côté de MISP/OpenCTI, aucun échange de données
 # avec elles — cycle de vie à part (sa donnée mérite sa propre politique de
-# sauvegarde/rétention). Ne partage que la façade, par confort : `make build`
-# ne la construit JAMAIS ; `make ciso-up` la démarre seule, volontairement,
+# sauvegarde/rétention). Ne partage que la façade, par confort : `make build-cti`
+# ne la construit JAMAIS ; `make up-ciso`/`make build-ciso` la démarre seule,
+# volontairement,
 # quand on le décide.
 CISO_HOSTNAME    ?= ciso.$(DOMAINE)
 HOST             := $(MISP_HOSTNAME)
@@ -179,9 +180,28 @@ MISP_ORG ?= ruggdoll
 # ne passe jamais). D'où le 'openssl rand -base64 32' ci-dessous, à part de la
 # boucle de secrets alphanumériques.
 
-.PHONY: build
-build: ## CONSTRUIT TOUTE LA PLATEFORME dans le bon ordre — make build HOST=<fqdn|ip>
+.PHONY: build-cti
+build-cti: ## CONSTRUIT MISP + OpenCTI dans le bon ordre — make build-cti HOST=<fqdn|ip>
 	@HOST='$(HOST)' provisioning/build_platform.sh
+
+# Groupe MISP+OpenCTI ("cti") : ils forment une paire réelle (deux ponts, un
+# socle commun) — up-cti/down-cti/destroy-cti les traitent comme un tout.
+# CISO-Assistant n'en fait pas partie (voir le groupe "ciso" plus bas) :
+# aucun pont, aucun socle partagé avec MISP/OpenCTI.
+.PHONY: up-cti
+up-cti: ## DÉMARRE MISP + OpenCTI — make up-cti (sur une plateforme déjà 'build-cti')
+	$(MAKE) --no-print-directory _misp-up
+	$(MAKE) --no-print-directory _opencti-up
+
+.PHONY: down-cti
+down-cti: ## ARRÊT PROPRE avant extinction/reboot — conteneurs CONSERVÉS, repartent au démarrage du démon
+	$(MAKE) --no-print-directory _opencti-stop
+	$(MAKE) --no-print-directory _misp-stop
+
+.PHONY: destroy-cti
+destroy-cti: ## DÉTRUIT MISP + OpenCTI ET leurs volumes (perte totale) — OpenCTI d'abord
+	$(MAKE) --no-print-directory _opencti-destroy
+	$(MAKE) --no-print-directory _misp-destroy
 
 # TRUST_STORES=none devant chaque appel à mkcert, en mode DOMAINE : le SERVEUR
 # n'a pas besoin de faire confiance à sa propre autorité (il n'y a pas de
@@ -196,7 +216,7 @@ init: # Crée les .env des deux piles avec des secrets aléatoires — make init
 	  echo "  ATTENTION : HOST=$(HOST) ne contient pas de point — ni FQDN, ni IP, ni 'localhost'."; \
 	  echo "    Si c'est un nom de machine local (résolu par /etc/hosts, NetBIOS…), vos clients"; \
 	  echo "    ne le résoudront probablement PAS. Il faut le FQDN ou l'IP RÉELS par lesquels ils"; \
-	  echo "    joindront la plateforme — ou 'make build DOMAINE=<domaine>' pour une façade HTTPS"; \
+	  echo "    joindront la plateforme — ou 'make build-cti DOMAINE=<domaine>' pour une façade HTTPS"; \
 	  echo "    à plusieurs identités (misp./opencti./ciso.<domaine>)."; \
 	fi
 	@echo "Nom public de la plateforme (CTI_HOSTNAME) : $(HOST)"
@@ -205,8 +225,8 @@ init: # Crée les .env des deux piles avec des secrets aléatoires — make init
 	    echo "  ATTENTION : $(ENV_FILE) existe déjà, généré SANS façade (mode HOST)."; \
 	    echo "    make init ne modifie jamais un .env existant — passer en mode"; \
 	    echo "    DOMAINE=$(DOMAINE) sur une plateforme déjà construite exige de repartir de"; \
-	    echo "    zéro (secrets et ports diffèrent) : make opencti-destroy && make destroy &&"; \
-	    echo "    rm vendor/misp-docker/.env opencti/.env ciso-assistant/.env && make build DOMAINE=$(DOMAINE)"; \
+	    echo "    zéro (secrets et ports diffèrent) : make destroy-cti &&"; \
+	    echo "    rm vendor/misp-docker/.env opencti/.env ciso-assistant/.env && make build-cti DOMAINE=$(DOMAINE)"; \
 	  fi; \
 	  echo "  $(ENV_FILE) existe déjà — inchangé."; \
 	else \
@@ -235,8 +255,8 @@ init: # Crée les .env des deux piles avec des secrets aléatoires — make init
 	    echo "  ATTENTION : $(OCTI_ENV) existe déjà, généré SANS façade (mode HOST)."; \
 	    echo "    make init ne modifie jamais un .env existant — passer en mode"; \
 	    echo "    DOMAINE=$(DOMAINE) sur une plateforme déjà construite exige de repartir de"; \
-	    echo "    zéro (secrets et ports diffèrent) : make opencti-destroy && make destroy &&"; \
-	    echo "    rm vendor/misp-docker/.env opencti/.env ciso-assistant/.env && make build DOMAINE=$(DOMAINE)"; \
+	    echo "    zéro (secrets et ports diffèrent) : make destroy-cti &&"; \
+	    echo "    rm vendor/misp-docker/.env opencti/.env ciso-assistant/.env && make build-cti DOMAINE=$(DOMAINE)"; \
 	  fi; \
 	  echo "  $(OCTI_ENV) existe déjà — inchangé."; \
 	else \
@@ -276,7 +296,7 @@ init: # Crée les .env des deux piles avec des secrets aléatoires — make init
 	@if [ -n "$(DOMAINE)" ]; then \
 	  if [ -f "$(CISO_ENV)" ]; then echo "  $(CISO_ENV) existe déjà — inchangé."; else \
 	    printf '%s\n' "CISO_HOSTNAME=$(CISO_HOSTNAME)" > "$(CISO_ENV)"; \
-	    echo "  $(CISO_ENV) généré — cycle de vie à part, PAS construite par 'make build' : 'make ciso-up' pour la démarrer"; \
+	    echo "  $(CISO_ENV) généré — cycle de vie à part, PAS construite par 'make build-cti' : 'make up-ciso' pour la démarrer"; \
 	  fi; \
 	fi
 	@if [ -n "$(DOMAINE)" ]; then \
@@ -290,52 +310,37 @@ init: # Crée les .env des deux piles avec des secrets aléatoires — make init
 	@echo "→ OpenCTI : $(URL_OCTI)  (admin@… / $(DEFAULT_PASSWORD))"
 	@echo "  La clé API admin MISP est propagée dans $(OCTI_ENV) (MISP_KEY). Un outil d'alimentation"
 	@echo "  y lit MISP_KEY et OPENCTI_ADMIN_TOKEN — ou reçoit une clé d'automation MISP dédiée."
-	@echo "  Suite : make up -> make opencti-up -> make bridge-setup"
+	@echo "  Suite : make up-cti (ou make build-cti pour tout enchaîner)"
 	@echo "  Pour n'écouter que sur le poste local : BIND_ADDRESS=127.0.0.1 dans les deux .env (défaut 0.0.0.0)."
 
-.PHONY: up
-up: $(ENV_FILE) ## Démarre la stack MISP (build/pull au 1er lancement)
+.PHONY: _misp-up
+_misp-up: $(ENV_FILE) # Démarre la stack MISP (build/pull au 1er lancement)
 	$(RUN) '$(COMPOSE) up -d'
 	@echo "MISP démarre… suivre avec 'make logs'. Prêt quand le healthcheck misp-core passe."
 
-.PHONY: stop
-stop: # ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (repartent au boot)
+.PHONY: _misp-stop
+_misp-stop: # ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (repartent au boot)
 	$(RUN) '$(COMPOSE) stop -t $(STOP_TIMEOUT)'
 
-.PHONY: down
-down: ## Arrête la stack (conserve les volumes)
+.PHONY: _misp-destroy
+_misp-destroy: # Arrête, supprime les volumes ET l'état monté en bind (perte totale)
 	@# Le réseau cti-platform-misp_default est REJOINT depuis l'extérieur par les
 	@# deux connecteurs OpenCTI et par la façade (profil proxy) — externes à ce
 	@# projet compose. Docker refuse de le retirer tant qu'un conteneur y est
 	@# encore attaché ("Resource is still in use"), quel que soit son projet :
-	@# contrôlé AVANT que 'down' échoue à mi-chemin, avec un message qui dit quoi
-	@# faire plutôt que l'erreur brute de Docker.
-	@attaches=$$($(RUN) 'docker network inspect cti-platform-misp_default --format "{{range .Containers}}{{.Name}} {{end}}"' 2>/dev/null); \
-	if [ -n "$$attaches" ]; then \
-	  echo "  ATTENTION : encore attachés au réseau cti-platform-misp_default : $$attaches"; \
-	  echo "    (connecteurs OpenCTI ou façade, probablement) — Docker refusera de le"; \
-	  echo "    retirer tant qu'ils y sont. Arrêter/détruire OpenCTI D'ABORD :"; \
-	  echo "    make opencti-down (ou opencti-destroy), puis relancer cette cible."; \
-	  exit 1; \
-	fi
-	$(RUN) '$(COMPOSE) down'
-
-.PHONY: destroy
-destroy: ## Arrête, supprime les volumes ET l'état monté en bind (perte totale)
-	@# Même contrôle que 'down' — voir son commentaire : la 'perte totale' promise
-	@# ici ne doit pas s'arrêter à mi-chemin (configs déjà vidées, volumes non
+	@# contrôlé AVANT que ça échoue à mi-chemin (configs déjà vidées, volumes non
 	@# supprimés) sur un réseau encore accroché par OpenCTI ou la façade.
 	@attaches=$$($(RUN) 'docker network inspect cti-platform-misp_default --format "{{range .Containers}}{{.Name}} {{end}}"' 2>/dev/null); \
 	if [ -n "$$attaches" ]; then \
 	  echo "  ATTENTION : encore attachés au réseau cti-platform-misp_default : $$attaches"; \
 	  echo "    (connecteurs OpenCTI ou façade, probablement) — Docker refusera de le"; \
 	  echo "    retirer tant qu'ils y sont. Arrêter/détruire OpenCTI D'ABORD :"; \
-	  echo "    make opencti-down (ou opencti-destroy), puis relancer cette cible."; \
+	  echo "    make down-cti (ou destroy-cti), puis relancer cette cible."; \
 	  exit 1; \
 	fi
 	@# vendor/misp-docker/{configs,logs,files,ssl,gnupg} sont des montages bind
 	@# gitignorés : ils SURVIVENT à 'down -v'. Or configs/database.php garde le
-	@# mot de passe MySQL du déploiement précédent — un 'make init' + 'make up'
+	@# mot de passe MySQL du déploiement précédent — un 'make init' + 'make up-cti'
 	@# suivant repart alors sur une base neuve avec l'ancien secret et misp-core
 	@# ne peut plus se connecter ("Access denied for user 'misp'"). On les vide
 	@# dans un conteneur root (ces dossiers appartiennent à www-data), AVANT le
@@ -382,7 +387,7 @@ cert-manuel: # CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE=
 	@echo "  Certificat obtenu. Renseigner dans $(OCTI_ENV) :"
 	@echo "    PROXY_TLS_CERT=/certs/live/$(DOMAINE)/fullchain.pem"
 	@echo "    PROXY_TLS_KEY=/certs/live/$(DOMAINE)/privkey.pem"
-	@echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
+	@echo "  puis : make up-cti   (recrée la façade avec le nouveau certificat)"
 	@echo
 	@echo "  RENOUVELLEMENT : Let's Encrypt délivre pour 90 jours et le DNS-01 manuel"
 	@echo "  n'est pas automatisable. Relancer cette même commande avant l'échéance ;"
@@ -411,7 +416,7 @@ proxy-cert: # RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) 
 	 TRUST_STORES=none mkcert -install >/dev/null; \
 	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$domaine" "*.$$domaine"; \
 	 echo "  certificat régénéré pour $$domaine et *.$$domaine (proxy/certs/) — couvre toute future identité, sans y repenser"; \
-	 echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
+	 echo "  puis : make up-cti   (recrée la façade avec le nouveau certificat)"
 
 .PHONY: proxy-ca
 proxy-ca: # EXPORTE la racine mkcert de l'autorité locale, à installer une fois sur chaque client
@@ -433,8 +438,8 @@ venv: # Crée l'environnement Python (.venv) des outils de la plateforme
 	@echo "→ activer avec: source .venv/bin/activate"
 
 
-.PHONY: opencti-up
-opencti-up: ## démarre le stack OpenCTI (Phase 4) — ~12 Go RAM
+.PHONY: _opencti-up
+_opencti-up: # démarre le stack OpenCTI (Phase 4) — ~12 Go RAM
 	@test -f opencti/.env || { echo "opencti/.env absent — lancer 'make init HOST=<fqdn|ip>'"; exit 1; }
 	$(RUN) '$(OCTI) up -d'
 	@echo "→ $$(grep -E '^OPENCTI_EXTERNAL_SCHEME=' opencti/.env | cut -d= -f2)://$$(grep -E '^OPENCTI_HOST=' opencti/.env | cut -d= -f2):$$(grep -E '^OPENCTI_PORT=' opencti/.env | cut -d= -f2) (admin : voir opencti/.env). Premier boot ~5-10 min."
@@ -465,8 +470,8 @@ bridge-setup: # câble le pont OpenCTI -> MISP (label export-misp + live stream 
 bridge-test: # contrôle bout en bout : crée un rapport DANS OpenCTI, le cherche dans MISP, puis nettoie (ARGS=--keep pour conserver)
 	./.venv/bin/python provisioning/bridge_test.py $(ARGS)
 
-.PHONY: opencti-down
-opencti-stop: # ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CONSERVÉS
+.PHONY: _opencti-stop
+_opencti-stop: # ARRÊT PROPRE de la pile OpenCTI : conteneurs stoppés mais CONSERVÉS
 	$(RUN) '$(OCTI) --profile feeds stop -t $(STOP_TIMEOUT)'
 
 .PHONY: stop-all
@@ -504,13 +509,8 @@ autostart-off: # Retire l'unité d'arrêt propre
 	rm -f "$(HOME)/.config/systemd/user/cti-platform.service"
 	systemctl --user daemon-reload
 
-.PHONY: opencti-down
-opencti-down: ## arrête le stack OpenCTI (volumes conservés)
-	@# --profile feeds : sans lui, les connecteurs de flux survivent à l'arrêt
-	$(RUN) '$(OCTI) --profile feeds down'
-
-.PHONY: opencti-destroy
-opencti-destroy: ## Arrête OpenCTI ET supprime ses volumes (ES, MinIO, RabbitMQ, Redis)
+.PHONY: _opencti-destroy
+_opencti-destroy: # Arrête OpenCTI ET supprime ses volumes (ES, MinIO, RabbitMQ, Redis)
 	@# --profile feeds : sans lui, les connecteurs de flux survivent à l'arrêt
 	$(RUN) '$(OCTI) --profile feeds down -v'
 
@@ -518,8 +518,8 @@ opencti-destroy: ## Arrête OpenCTI ET supprime ses volumes (ES, MinIO, RabbitMQ
 opencti-logs: # suit les logs OpenCTI
 	$(RUN) '$(OCTI) logs -f --tail=100'
 
-.PHONY: ciso-up
-ciso-up: ## DÉMARRE CISO-Assistant (GRC) — à côté de MISP/OpenCTI, aucun échange de données
+.PHONY: up-ciso
+up-ciso: ## DÉMARRE CISO-Assistant (GRC) — à côté de MISP/OpenCTI, aucun échange de données
 	@grep -qsE '^CISO_HOSTNAME=.+' "$(CISO_ENV)" 2>/dev/null || { echo "  pas de façade configurée pour CISO-Assistant (make init DOMAINE=<domaine>)"; exit 1; }
 	@$(RUN) 'docker network create cti-platform-ciso_default' >/dev/null 2>&1; true
 	@# L'image tourne en UID 1001 non-root ; un volume Docker NEUF appartient à
@@ -530,17 +530,23 @@ ciso-up: ## DÉMARRE CISO-Assistant (GRC) — à côté de MISP/OpenCTI, aucun �
 	@echo "  → https://$$(grep -E '^CISO_HOSTNAME=' "$(CISO_ENV)" | cut -d= -f2) — premier accès : make ciso-superuser"
 	@echo "  premier démarrage LENT (migrations) : make ciso-logs pour suivre"
 
+# Rien à construire pour CISO-Assistant à part son démarrage (pas de socle, pas
+# de pont) : build-ciso EST up-ciso, un seul et même target sous deux noms —
+# pour la symétrie avec build-cti/up-cti, qui eux font des choses différentes.
+.PHONY: build-ciso
+build-ciso: up-ciso ## CONSTRUIT/DÉMARRE CISO-Assistant — même chose qu'up-ciso (rien d'autre à construire)
+
+.PHONY: down-ciso
+down-ciso: ## ARRÊT PROPRE avant extinction/reboot — conteneurs CONSERVÉS, repartent au démarrage du démon
+	$(RUN) '$(CISO) stop'
+
+.PHONY: destroy-ciso
+destroy-ciso: ## DÉTRUIT CISO-Assistant ET ses volumes (base, Qdrant) — perte totale
+	$(RUN) '$(CISO) down -v'
+
 .PHONY: ciso-superuser
 ciso-superuser: # CRÉE le premier compte admin CISO-Assistant (interactif, une fois)
 	$(RUN) '$(CISO) exec backend python manage.py createsuperuser'
-
-.PHONY: ciso-down
-ciso-down: ## arrête CISO-Assistant (volumes conservés)
-	$(RUN) '$(CISO) down'
-
-.PHONY: ciso-destroy
-ciso-destroy: ## Arrête CISO-Assistant ET supprime ses volumes (base, Qdrant)
-	$(RUN) '$(CISO) down -v'
 
 .PHONY: ciso-logs
 ciso-logs: # suit les logs CISO-Assistant

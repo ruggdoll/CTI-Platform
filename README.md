@@ -29,8 +29,8 @@ propres outils d'alimentation, par les interfaces standard des deux produits
 
 Ce dépôt héberge aussi [CISO-Assistant](#ciso-assistant-grc) (GRC : risques,
 conformité, audits), à côté — même hôte, cycle de vie séparé de `make
-build`/`make destroy` (aucune donnée échangée avec MISP/OpenCTI, démarrage
-volontaire par `make ciso-up`).
+build-cti`/`make destroy-cti` (aucune donnée échangée avec MISP/OpenCTI,
+démarrage volontaire par `make up-ciso`).
 
 ## Démarrage rapide
 
@@ -47,30 +47,30 @@ sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn|ip>
 #   sudo provisioning/prepare_host.sh --user cti-platform --domaine <domaine>
 
 # Puis, connecté en tant que ce compte :
-make build HOST=<fqdn|ip>      # construit TOUTE la plateforme, dans le bon ordre
-#   ... ou : make build DOMAINE=<domaine>  -> misp.<domaine> et opencti.<domaine>
+make build-cti HOST=<fqdn|ip>  # construit TOUTE la plateforme, dans le bon ordre
+#   ... ou : make build-cti DOMAINE=<domaine>  -> misp.<domaine> et opencti.<domaine>
 #           derrière un proxy inverse, TLS par autorité locale (make proxy-ca)
 make bridge-test               # contrôle de bout en bout
 ```
 
 Le rootless est le mode visé : aucun groupe root-équivalent, le socket Docker
-appartient au compte qui porte la plateforme. `make build` détecte le mode et
-dimensionne les deux piles sur la RAM réelle de la machine. Le mode rootful
-reste utilisable sans réglage particulier.
+appartient au compte qui porte la plateforme. `make build-cti` détecte le mode
+et dimensionne les deux piles sur la RAM réelle de la machine. Le mode
+rootful reste utilisable sans réglage particulier.
 
 `HOST` — ou `DOMAINE` en mode façade — est **le** paramètre du déploiement :
-par quoi les clients joindront la plateforme. `make build` enchaîne ses étapes et
-**attend** entre elles — API MISP disponible, plateforme OpenCTI en ligne,
-socle ATT&CK complet — parce que l'ordre n'est pas interchangeable et qu'il ne
-doit pas reposer sur la mémoire de celui qui déploie :
+par quoi les clients joindront la plateforme. `make build-cti` enchaîne ses
+étapes et **attend** entre elles — API MISP disponible, plateforme OpenCTI en
+ligne, socle ATT&CK complet — parce que l'ordre n'est pas interchangeable et
+qu'il ne doit pas reposer sur la mémoire de celui qui déploie :
 
 ```
 1. make init          les .env, alignés sur HOST
-2. make up            pile MISP            -> https://<HOST>
+2. démarre MISP        -> https://<HOST>
    make proxy-up          façade HTTPS, en mode DOMAINE uniquement
 3. make venv          environnement Python
 4. make socle-misp    SOCLE MISP : galaxies, taxonomies, warninglists
-5. make opencti-up    pile OpenCTI + MITRE -> http://<HOST>:8080
+5. démarre OpenCTI + MITRE -> http://<HOST>:8080
    make attack-status ARGS=--wait   attend que l'ATT&CK soit chargée, sans concurrence
 6. make bridge-setup  label export-misp + live stream, puis recrée le connecteur
 7. make socle-opencti SOCLE OpenCTI : rapports STIX publics VIGINUM
@@ -78,15 +78,18 @@ doit pas reposer sur la mémoire de celui qui déploie :
 9. make autostart     arrêt propre des piles à l'extinction (unité systemd)
 ```
 
-CISO-Assistant n'apparaît pas dans cette liste : `make build` ne la construit
-jamais — [démarrage volontaire, à part](#ciso-assistant-grc).
+Les étapes 2 et 5 (démarrage de MISP, d'OpenCTI) sont internes à
+`build-cti` — pas des cibles séparées à retenir ; côté commandes, seuls
+`up-cti`/`down-cti`/`destroy-cti` existent pour agir dessus après coup.
+CISO-Assistant n'apparaît pas dans cette liste : `make build-cti` ne la
+construit jamais — [démarrage volontaire, à part](#ciso-assistant-grc).
 
 La cible est **idempotente** : relançable sur une plateforme à moitié
-construite. Chaque étape reste utilisable seule (`make socle-misp`,
-`make socle-opencti`, `make attack-status`, `make bridge-setup`…) pour
-reprendre au milieu — ou groupée : `make socle-all` pose les deux socles
-(MISP puis OpenCTI) l'un après l'autre, une fois les deux piles up et
-l'ATT&CK chargé.
+construite. Certaines étapes internes restent utilisables seules
+(`make socle-misp`, `make socle-opencti`, `make attack-status`, `make
+bridge-setup`…) pour reprendre au milieu si besoin — ou groupée : `make
+socle-all` pose les deux socles (MISP puis OpenCTI) l'un après l'autre, une
+fois les deux piles up et l'ATT&CK chargé.
 
 `make init` génère les `.env` des deux piles et les aligne sur `HOST`. Comptes
 par défaut : `admin@cti-lab.local` / `MyP@ssword42!` des deux côtés
@@ -96,7 +99,7 @@ dans [`docs/SETUP.md`](docs/SETUP.md) ; `make help` liste les cibles.
 
 ## Deux identités derrière une façade HTTPS
 
-`make build DOMAINE=<domaine>` met un proxy inverse devant les deux piles et
+`make build-cti DOMAINE=<domaine>` met un proxy inverse devant les deux piles et
 leur donne un nom chacune, au lieu d'une seule façade où OpenCTI vivait sur un
 port :
 
@@ -111,7 +114,7 @@ connecteurs, les workers et le pont MISP passent par les noms de conteneurs et
 ne la traversent jamais.
 
 Le TLS est assuré par un certificat **mkcert** (autorité locale posée sur
-l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build DOMAINE=…` le
+l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build-cti DOMAINE=…` le
 génère en **joker** (`<domaine>` et `*.<domaine>`), pas nom par nom — toute
 identité sous ce domaine y entre sans qu'il faille y repenser, y compris
 `ciso.<domaine>` si vous démarrez [CISO-Assistant](#ciso-assistant-grc) à côté. Contrairement à un `openssl` maison, l'autorité n'a besoin d'être
@@ -186,9 +189,10 @@ même hôte, même façade HTTPS par commodité, mais un cycle de vie propre.
 **Pourquoi un cycle de vie à part** : MISP et OpenCTI échangent des données
 par deux ponts et partagent un socle de référentiels à poser avant tout flux
 — une paire réelle. CISO-Assistant n'a aucun de ces deux liens (zéro pont,
-zéro socle, zéro adressage partagé avec les deux autres). D'où : `make build`
-et `make destroy` ne la touchent jamais — `make ciso-up`/`make ciso-down`/
-`make ciso-destroy` la pilotent, à part, quand vous le décidez.
+zéro socle, zéro adressage partagé avec les deux autres). D'où : `make
+build-cti` et `make destroy-cti` ne la touchent jamais — `make up-ciso`/
+`make down-ciso`/`make destroy-ciso` la pilotent, à part, quand vous le
+décidez.
 
 **Elle n'existe qu'en mode façade** (`DOMAINE=…`) : sa pile amont ne publie
 aucun port, elle n'est joignable que par nom derrière Traefik — une
@@ -197,18 +201,18 @@ contrainte de l'image, pas un choix de ce dépôt. `make init` prépare
 rien ne la démarre toute seule :
 
 ```bash
-make ciso-up   # premier démarrage LENT : ~200 migrations Django,
+make up-ciso   # premier démarrage LENT : ~200 migrations Django,
                #   10-15 min constatées, en arrière-plan
 ```
 
 | Besoin | Commande |
 |---|---|
-| démarrer | `make ciso-up` |
+| démarrer | `make up-ciso` |
 | premier compte admin | `make ciso-superuser` |
 | état des conteneurs | `make ciso-ps` |
 | journaux | `make ciso-logs` |
-| arrêt, conteneurs conservés | `make ciso-down` |
-| arrêt, volumes détruits (base, Qdrant) | `make ciso-destroy` (**perte totale**) |
+| arrêt, conteneurs conservés (avant reboot) | `make down-ciso` |
+| arrêt, volumes détruits (base, Qdrant) | `make destroy-ciso` (**perte totale**) |
 
 ## Le socle — à poser avant tout flux
 
@@ -220,7 +224,7 @@ rapport créent des souches vides à fusionner plus tard.
 | Côté | Commande | Ce qui est posé |
 |---|---|---|
 | **MISP** | `make socle-misp` | galaxies (table canonique des acteurs et de leurs alias), taxonomies utilisées (`tlp`, `PAP`, `admiralty-scale`, `osint`, `misp`, `estimative-language`), **toutes** les warninglists, modèles d'objets, noticelists |
-| **OpenCTI** | `make opencti-up` puis `make attack-status` | MITRE ATT&CK par `connector-mitre` : ~1 600 techniques, ~190 groupes, ~850 malwares, ~1 200 mitigations, ~65 campagnes. C'est le référentiel sur lequel se raccrochent tous les rapports par `external_id` T1xxx |
+| **OpenCTI** | `make up-cti` puis `make attack-status` | MITRE ATT&CK par `connector-mitre` : ~1 600 techniques, ~190 groupes, ~850 malwares, ~1 200 mitigations, ~65 campagnes. C'est le référentiel sur lequel se raccrochent tous les rapports par `external_id` T1xxx |
 | **OpenCTI** | `make socle-opencti ARGS=--yes` | rapports STIX publics de VIGINUM (RRN, Portal Kombat, Matriochka, BIG) : source gouvernementale, TLP:CLEAR |
 
 Les deux socles côte à côte, une fois les piles up et l'ATT&CK chargé :
@@ -236,7 +240,7 @@ compte.
 **L'ordre compte.** Au premier démarrage, quatre connecteurs de masse lancés
 ensemble saturent une machine modeste — deux cœurs physiques suffisent à peine
 à porter les deux piles — et l'ATT&CK arrive au compte-gouttes.
-`make opencti-up` ne démarre donc que le cœur, MITRE et les ponts ; les flux
+`make up-cti` ne démarre donc que le cœur, MITRE et les ponts ; les flux
 externes attendent `make opencti-feeds`. `make attack-status` dit où en est le
 socle et refuse de vous laisser croire qu'il est prêt quand il ne l'est pas.
 
@@ -269,13 +273,13 @@ sentinelles, 1970 et 5138).
 
 ### OpenCTI — le graphe et les rapports
 
-`make opencti-up` (`opencti/docker-compose.yml`) : plateforme, workers, et les
-connecteurs MITRE ATT&CK, CISA KEV, import-document, import-file-stix, plus
-les deux ponts MISP.
+Démarrée par `make up-cti` (`opencti/docker-compose.yml`) : plateforme,
+workers, et les connecteurs MITRE ATT&CK, CISA KEV, import-document,
+import-file-stix, plus les deux ponts MISP.
 
 ### MISP — les observables
 
-`make up` (`vendor/misp-docker`, sous-module officiel, surcharges dans
+Démarrée par `make up-cti` (`vendor/misp-docker`, sous-module officiel, surcharges dans
 `compose.tuning.yml` et `docker/`) : cœur, modules, MariaDB réglée pour le
 volume (buffer pool dimensionné par `make init`), Redis. Le socle
 (`make socle-misp`) fournit les
@@ -314,13 +318,13 @@ bundles.
 
 | Besoin | Commande |
 |---|---|
-| construire toute la plateforme, dans l'ordre | `make build HOST=<fqdn\|ip>` / `make build DOMAINE=<domaine>` |
-| démarrer une brique | `make up` (MISP), `make opencti-up`, `make ciso-up` |
-| arrêter une brique, conteneurs conservés | `make down`, `make opencti-down`, `make ciso-down` |
-| détruire une brique, volumes compris | `make destroy`, `make opencti-destroy`, `make ciso-destroy` (**perte totale**) — OpenCTI d'abord : ses connecteurs et la façade sont accrochés au réseau de MISP, `make down`/`make destroy` refusent de le retirer tant qu'ils y sont |
+| construire toute la plateforme, dans l'ordre | `make build-cti HOST=<fqdn\|ip>` / `make build-cti DOMAINE=<domaine>` |
+| démarrer | `make up-cti` (MISP+OpenCTI), `make up-ciso` |
+| arrêter, avant extinction/reboot — conteneurs conservés | `make down-cti`, `make down-ciso` |
+| détruire, volumes compris | `make destroy-cti`, `make destroy-ciso` (**perte totale**) |
 
 `make help` n'affiche que ces cibles. Le reste (socle, pont, façade, diagnostics…)
-tourne à l'intérieur de `make build` et dans les cibles internes qu'il appelle —
+tourne à l'intérieur de `make build-cti` et dans les cibles internes qu'il appelle —
 détaillées dans les sections ci-dessus, lisibles dans le `Makefile` si besoin
 de les rejouer une par une.
 
@@ -333,13 +337,13 @@ de les rejouer une par une.
 | `compose.tuning.yml`, `docker/` | overrides de la pile MISP (MariaDB, ports, noms de volumes) |
 | `opencti/` | pile OpenCTI + connecteurs, dont les deux ponts MISP |
 | `provisioning/_config.py` | adressage unique (URL et jetons lus dans les `.env`, surchargés par l'environnement) |
-| `provisioning/build_platform.sh` | construction complète dans le bon ordre (`make build`) |
+| `provisioning/build_platform.sh` | construction complète dans le bon ordre (`make build-cti`) |
 | `provisioning/misp_socle.py`, `opencti_socle.py`, `attack_status.py` | socle des deux plateformes : référentiels MISP, ATT&CK, rapports STIX VIGINUM |
 | `provisioning/bridge_setup.py`, `bridge_test.py`, `selftest/` | câblage et contrôle bout en bout du pont |
 | `provisioning/prepare_host.sh`, `rootless_setup.sh` | préparation d'un hôte neuf : tout ce qui exige root, puis le démon rootless du compte |
 | `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
-| `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build DOMAINE=…`) |
-| `ciso-assistant/docker-compose.yml` | CISO-Assistant (GRC), cycle de vie à part — `make ciso-up`, jamais `make build` |
+| `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build-cti DOMAINE=…`) |
+| `ciso-assistant/docker-compose.yml` | CISO-Assistant (GRC), cycle de vie à part — `make up-ciso`, jamais `make build-cti` |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |
 
 ## Sécurité
@@ -349,7 +353,7 @@ de les rejouer une par une.
   Python ne codent aucune URL ni aucun jeton en dur : tout passe par
   `provisioning/_config.py`.
 - Le certificat livré par la pile MISP est auto-signé et porte `CN=localhost`.
-  Derrière la façade (`make build DOMAINE=…`), c'est elle qui porte le TLS —
+  Derrière la façade (`make build-cti DOMAINE=…`), c'est elle qui porte le TLS —
   autorité locale par défaut, certificat public par `make cert-manuel`. Sans
   façade, poser un certificat au nom de `HOST` avant tout usage réel.
 - Le déploiement vise un démon Docker **rootless** : pas de groupe
