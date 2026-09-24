@@ -182,6 +182,13 @@ build: ## CONSTRUIT TOUTE LA PLATEFORME dans le bon ordre — make build HOST=<f
 # une valeur explicite ("none", n'appartenant à aucun magasin réel) coupe tout.
 .PHONY: init
 init: ## Crée les .env des deux piles avec des secrets aléatoires — make init HOST=<fqdn|ip>
+	@if [ -z "$(DOMAINE)" ] && [ "$(HOST)" != "localhost" ] && ! echo '$(HOST)' | grep -q '\.'; then \
+	  echo "  ATTENTION : HOST=$(HOST) ne contient pas de point — ni FQDN, ni IP, ni 'localhost'."; \
+	  echo "    Si c'est un nom de machine local (résolu par /etc/hosts, NetBIOS…), vos clients"; \
+	  echo "    ne le résoudront probablement PAS. Il faut le FQDN ou l'IP RÉELS par lesquels ils"; \
+	  echo "    joindront la plateforme — ou 'make build DOMAINE=<domaine>' pour une façade HTTPS"; \
+	  echo "    à plusieurs identités (misp./opencti./ciso.<domaine>)."; \
+	fi
 	@echo "Nom public de la plateforme (CTI_HOSTNAME) : $(HOST)"
 	@if [ -f "$(ENV_FILE)" ]; then echo "  $(ENV_FILE) existe déjà — inchangé."; else \
 	  cp .env.example "$(ENV_FILE)"; \
