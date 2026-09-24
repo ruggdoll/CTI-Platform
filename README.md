@@ -1,14 +1,14 @@
 # CTI-Platform
 
 Une plateforme de renseignement sur les menaces (CTI) auto-hébergée, faite de
-deux piles Docker — **MISP** et **OpenCTI** — reliées par deux ponts, d'une
-troisième pile **optionnelle et indépendante** — **CISO-Assistant** (GRC) —
-sous sa propre identité derrière la même façade, et de quoi le tout se
-**construire en une commande, s'exploiter, se sauvegarder, se détruire et se
-mettre à jour**. Rien d'autre : ce dépôt ne contient aucune donnée de
-renseignement et aucun outil de collecte. Le contenu vient de vos propres
-outils d'alimentation, par les interfaces standard des produits (bundles
-STIX 2.1 côté OpenCTI, API et feeds côté MISP).
+trois piles Docker — **MISP** et **OpenCTI**, reliées par deux ponts, et
+**CISO-Assistant** (GRC), indépendante des deux autres mais sous sa propre
+identité derrière la même façade — et de quoi le tout se **construire en une
+commande, s'exploiter, se sauvegarder, se détruire et se mettre à jour**.
+Rien d'autre : ce dépôt ne contient aucune donnée de renseignement et aucun
+outil de collecte. Le contenu vient de vos propres outils d'alimentation, par
+les interfaces standard des produits (bundles STIX 2.1 côté OpenCTI, API et
+feeds côté MISP).
 
 ```
     ┌────────────────┐   connector-misp-intel   ┌──────────────┐
@@ -24,8 +24,9 @@ STIX 2.1 côté OpenCTI, API et feeds côté MISP).
     │  GRC (risques, audits,  │
     │       conformité)       │
     └─────────────────────────┘
-      optionnelle (make ciso-up) — aucune flèche vers les piles ci-dessus,
-      juste la façade HTTPS en commun. Détails plus bas.
+      construite par make build en mode façade (DOMAINE=…) — aucune flèche
+      vers les piles ci-dessus, juste la façade HTTPS en commun. Détails
+      plus bas.
 ```
 
 - **OpenCTI** est le cœur : graphe de connaissance (Intrusion-Set, Malware,
@@ -37,7 +38,7 @@ STIX 2.1 côté OpenCTI, API et feeds côté MISP).
 - Le pont MISP → OpenCTI remonte ces observables comme Indicators et
   Observables — **jamais** comme faux Reports.
 - **CISO-Assistant** est indépendante : ni pont, ni socle, ni adressage
-  partagé avec les deux piles ci-dessus (voir [plus bas](#ciso-assistant-grc--optionnelle-à-côté)).
+  partagé avec les deux piles ci-dessus (voir [plus bas](#ciso-assistant-grc--construite-avec-les-deux-autres)).
 
 ## Démarrage rapide
 
@@ -50,7 +51,7 @@ cd CTI-Platform
 
 # Hôte neuf (Debian 13, Docker rootless) : tout ce qui exige root, une fois.
 sudo provisioning/prepare_host.sh --user cti-platform --host <fqdn|ip>
-#   ... ou, pour deux identités derrière une façade HTTPS :
+#   ... ou, pour trois identités derrière une façade HTTPS :
 #   sudo provisioning/prepare_host.sh --user cti-platform --domaine <domaine>
 
 # Puis, connecté en tant que ce compte :
@@ -82,7 +83,8 @@ doit pas reposer sur la mémoire de celui qui déploie :
 6. make bridge-setup  label export-misp + live stream, puis recrée le connecteur
 7. socle-opencti      SOCLE OpenCTI : rapports STIX publics VIGINUM
 8. make opencti-feeds connecteurs de flux OpenCTI
-9. make autostart     arrêt propre des piles à l'extinction (unité systemd)
+9. make ciso-up       CISO-Assistant (GRC) -> https://ciso.<domaine>, mode DOMAINE uniquement
+10. make autostart    arrêt propre des piles à l'extinction (unité systemd)
 ```
 
 La cible est **idempotente** : relançable sur une plateforme à moitié
@@ -100,16 +102,15 @@ dans [`docs/SETUP.md`](docs/SETUP.md) ; `make help` liste les cibles.
 
 ## Plusieurs identités derrière une façade HTTPS
 
-`make build DOMAINE=<domaine>` met un proxy inverse devant MISP et OpenCTI et
+`make build DOMAINE=<domaine>` met un proxy inverse devant les trois piles et
 leur donne un nom chacune, au lieu d'une seule façade où OpenCTI vivait sur un
-port — CISO-Assistant, optionnelle, en reçoit un troisième si elle est
-démarrée :
+port :
 
 | | |
 |---|---|
 | `https://misp.<domaine>` | l'interface MISP |
 | `https://opencti.<domaine>` | l'interface OpenCTI |
-| `https://ciso.<domaine>` | CISO-Assistant (GRC), si démarré — voir plus bas |
+| `https://ciso.<domaine>` | CISO-Assistant (GRC) — voir plus bas |
 
 Les piles n'écoutent alors que sur `127.0.0.1` ; la façade tient 80 et 443
 et les joint par le réseau Docker. Elle n'existe **que pour l'extérieur** : les
@@ -118,8 +119,8 @@ ne la traversent jamais.
 
 Le TLS est assuré par un certificat **mkcert** (autorité locale posée sur
 l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build DOMAINE=…` le
-génère pour les noms actifs (MISP et OpenCTI, plus CISO-Assistant dès que
-`CISO_HOSTNAME` est renseigné). Contrairement à un `openssl` maison, l'autorité
+génère pour les trois noms (MISP, OpenCTI, CISO-Assistant). Contrairement à un
+`openssl` maison, l'autorité
 n'a besoin d'être approuvée qu'**une fois** par poste client — les
 régénérations ultérieures du certificat (`make proxy-cert`) restent
 approuvées sans nouveau geste, tant que la racine mkcert de l'hôte ne change
@@ -127,13 +128,11 @@ pas.
 
 ### Ce que chaque poste client doit faire — une fois
 
-**1. Résoudre les noms actifs.** Ils n'ont pas à exister dans un DNS public ;
-une entrée dans le fichier `hosts` suffit — `ciso.<domaine>` en plus si
-CISO-Assistant est démarrée :
+**1. Résoudre les trois noms.** Ils n'ont pas à exister dans un DNS public ;
+une entrée dans le fichier `hosts` suffit :
 
 ```bash
-echo '<ip de la plateforme>   misp.<domaine> opencti.<domaine>' | sudo tee -a /etc/hosts
-#   ... et ciso.<domaine> si `make ciso-up` a été lancé
+echo '<ip de la plateforme>   misp.<domaine> opencti.<domaine> ciso.<domaine>' | sudo tee -a /etc/hosts
 ```
 
 **2. Faire confiance à l'autorité locale**, sans quoi le navigateur signale une
@@ -173,7 +172,7 @@ make cert-manuel DOMAINE=<domaine> CERT_EMAIL=<courriel>   # certbot affiche le 
 
 Le challenge est fait à la main : la procédure ne dépend d'aucun hébergeur DNS
 particulier, et aucun jeton d'API n'est confié à la plateforme. Le certificat
-est un joker `*.<domaine>`, donc **un seul TXT** couvre les deux noms.
+est un joker `*.<domaine>`, donc **un seul TXT** couvre les trois noms.
 
 La contrepartie est assumée : 90 jours de validité et pas d'automatisation
 possible, donc un renouvellement manuel trimestriel. Le choix se fait entre un
@@ -182,30 +181,34 @@ tous les trois mois (certificat public). Détails dans
 [`docs/SETUP.md`](docs/SETUP.md) : l'architecture est identique dans les deux
 cas, seule la fabrique des certificats change.
 
-## CISO-Assistant (GRC) — optionnelle, à côté
+## CISO-Assistant (GRC) — construite avec les deux autres
 
-`make ciso-up` démarre une troisième pile, [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community)
-(risques, conformité, audits), derrière la même façade HTTPS que MISP et
-OpenCTI, sous sa propre identité (`https://ciso.<domaine>`). Elle n'échange
+Une troisième pile, [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community)
+(risques, conformité, audits), tourne derrière la même façade HTTPS que MISP
+et OpenCTI, sous sa propre identité (`https://ciso.<domaine>`). Elle n'échange
 aucune donnée avec les deux autres piles : ni pont, ni socle commun, ni
-adressage partagé.
+adressage partagé — seule la façade leur est commune.
 
-Elle n'existe **qu'en mode façade** (`DOMAINE=…`) et **que si `CISO_HOSTNAME`
-est renseigné** dans `ciso-assistant/.env` — `make init DOMAINE=<domaine>`
-l'y écrit par défaut (`ciso.<domaine>`), sans quoi ni le routeur Traefik ni la
-cible `ciso-up` ne s'activent :
+`make build DOMAINE=<domaine>` la construit avec les deux autres, pas de geste
+séparé à retenir. **Elle n'existe qu'en mode façade** (`DOMAINE=…`) : sa pile
+amont ne publie aucun port, elle n'est joignable que par nom derrière Traefik
+— une contrainte de l'image, pas un choix de ce dépôt. `make init` prépare
+toujours `CISO_HOSTNAME` dans `ciso-assistant/.env` dès que `DOMAINE` est
+fourni, et `make build` la démarre à l'étape 9/10 :
 
 ```bash
-make ciso-up            # démarre CISO-Assistant (premier démarrage LENT :
-                         #   ~200 migrations Django, 10-15 min constatées)
-make ciso-logs           # suit la progression
-make ciso-superuser      # crée le premier compte admin, une fois la pile en ligne
+make ciso-up             # rejoue le démarrage seule (idempotent) — premier
+                          #   démarrage LENT : ~200 migrations Django,
+                          #   10-15 min constatées, en arrière-plan
+make ciso-logs            # suit la progression
+make ciso-superuser       # crée le premier compte admin, une fois la pile en ligne
 ```
 
 | Besoin | Commande |
 |---|---|
-| démarrer | `make ciso-up` |
+| démarrer (rejeu, hors `make build`) | `make ciso-up` |
 | premier compte admin | `make ciso-superuser` |
+| état des conteneurs | `make ciso-ps` |
 | journaux | `make ciso-logs` |
 | arrêt, volumes détruits (base, Qdrant) | `make ciso-destroy` (**perte totale**) |
 
@@ -278,7 +281,7 @@ sentinelles, 1970 et 5138).
 ## MISP et OpenCTI — les deux piles reliées
 
 CISO-Assistant, la troisième pile, est indépendante de celles-ci — voir
-[plus haut](#ciso-assistant-grc--optionnelle-à-côté).
+[plus haut](#ciso-assistant-grc--construite-avec-les-deux-autres).
 
 ### OpenCTI — le graphe et les rapports
 
@@ -358,7 +361,7 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | `provisioning/adressage.py`, `misp_cle_automation.py` | ce qu'un outil d'alimentation doit connaître, et la clé dédiée pour s'en servir |
 | `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
 | `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build DOMAINE=…`) |
-| `ciso-assistant/docker-compose.yml` | pile CISO-Assistant (GRC), optionnelle (`make ciso-up`) |
+| `ciso-assistant/docker-compose.yml` | pile CISO-Assistant (GRC), construite avec les deux autres en mode façade |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |
 
 ## Sécurité

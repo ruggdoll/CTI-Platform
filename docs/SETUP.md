@@ -254,11 +254,12 @@ session, donc le démon, qui relance tout ce qui est en `restart: always`.
 `make autostart-off` retire l'unité. `make stop-all` s'utilise aussi à la main
 avant une intervention.
 
-## 5 ter. Deux identités derrière un proxy inverse
+## 5 ter. Trois identités derrière un proxy inverse
 
 Par défaut, chaque pile publie ses propres ports : MISP en 443, OpenCTI en
 8080, sous un seul nom. `make build DOMAINE=<domaine>` met à la place une
-**façade HTTPS** devant les deux, sous deux identités :
+**façade HTTPS** devant les trois (MISP, OpenCTI, CISO-Assistant), sous trois
+identités :
 
 ```bash
 sudo provisioning/prepare_host.sh --user cti-platform --domaine here.local
@@ -270,11 +271,13 @@ make proxy-ca        # exporte la racine à installer sur les postes clients
 |---|---|
 | `https://misp.here.local` | la pile MISP |
 | `https://opencti.here.local` | la plateforme OpenCTI |
+| `https://ciso.here.local` | CISO-Assistant (GRC) — [détail plus bas](#5-quater-ciso-assistant-grc-construite-avec-les-deux-autres) |
 
-Les deux piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI
-en 8080) ; la façade tient 80 et 443 et les joint par le réseau Docker. Elle est
-un service de la pile OpenCTI sous le profil `proxy`, activé automatiquement dès
-que `MISP_HOSTNAME` est renseigné : toute cible `opencti-*` l'embarque, même
+Les piles n'écoutent plus que sur `127.0.0.1` (MISP en 8081/8444, OpenCTI en
+8080 ; CISO-Assistant ne publie aucun port, façade obligatoire) ; la façade
+tient 80 et 443 et les joint par le réseau Docker. Elle est un service de la
+pile OpenCTI sous le profil `proxy`, activé automatiquement dès que
+`MISP_HOSTNAME` est renseigné : toute cible `opencti-*` l'embarque, même
 lancée seule des mois plus tard.
 
 **La façade n'existe que pour l'extérieur.** Les échanges internes — les six
@@ -289,7 +292,7 @@ ni d'un proxy.
 Traefik ne tient pas d'autorité de certification intégrée — contrairement à
 Caddy, qu'il remplace ici. La façade sert donc un certificat **mkcert**
 (paquet Debian/Ubuntu `mkcert`) : une autorité locale posée
-**sur l'hôte**, qui signe un certificat pour les deux noms. `make
+**sur l'hôte**, qui signe un certificat pour les trois noms. `make
 init`/`make build DOMAINE=…` génère l'autorité (si absente) et le certificat en
 un geste ; `make proxy-cert` régénère seulement le certificat (noms changés,
 expiration). Le seul geste côté poste client est d'importer la racine une
@@ -356,33 +359,38 @@ En échange : plus aucune racine à distribuer, les navigateurs font confiance
 nativement, et `make adressage` émet `MISP_VERIFY_SSL=1` de lui-même puisqu'il
 constate un certificat public.
 
-## 5 quater. CISO-Assistant (GRC), optionnelle
+## 5 quater. CISO-Assistant (GRC), construite avec les deux autres
 
 Une troisième pile, indépendante — [CISO-Assistant](https://github.com/intuitem/ciso-assistant-community)
-(risques, conformité, audits) — peut rejoindre la façade, sous sa propre
+(risques, conformité, audits) — tourne derrière la façade, sous sa propre
 identité. Elle n'échange aucune donnée avec MISP ou OpenCTI : ni pont, ni
 socle, ni adressage partagé ; seul le certificat mkcert de la façade lui est
 commun.
 
-Elle n'existe qu'en mode façade (`DOMAINE=…`). `make init DOMAINE=<domaine>`
-écrit `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` et l'inclut
-dans le certificat mkcert (3e SAN). Le routeur Traefik correspondant
-(`proxy/dynamic/dynamic.yml`, un gabarit Go) ne se rend que si cette variable
-est non vide — la retirer du fichier suffit à désactiver la façade CISO sans
-toucher au reste.
+Elle n'existe qu'en mode façade (`DOMAINE=…`) : sa pile amont ne publie aucun
+port, elle n'est joignable que par nom derrière Traefik — une contrainte de
+l'image, pas un réglage de ce dépôt. `make init DOMAINE=<domaine>` écrit donc
+toujours `CISO_HOSTNAME=ciso.<domaine>` dans `ciso-assistant/.env` et l'inclut
+dans le certificat mkcert (3e SAN), et `make build DOMAINE=<domaine>` la
+démarre avec les deux autres, à l'étape 9/10 — aucun geste séparé à retenir.
+Le routeur Traefik correspondant (`proxy/dynamic/dynamic.yml`, un gabarit Go)
+ne se rend que si `CISO_HOSTNAME` est non vide — le retirer du fichier suffit
+à désactiver la façade CISO sans toucher au reste ; `make ciso-up` reste
+disponible seule pour rejouer le démarrage ou l'ajouter après coup à une
+plateforme déjà construite :
 
 ```bash
-make ciso-up            # démarre la pile (backend, huey, frontend, qdrant)
-make ciso-logs           # premier démarrage LENT : ~200 migrations Django,
-                          #   10-15 min constatées sur une machine déjà chargée
-                          #   par MISP+OpenCTI — healthcheck réglé en conséquence
-make ciso-superuser      # une fois la pile en ligne : premier compte admin
+make ciso-up             # (re)démarre la pile (backend, huey, frontend, qdrant)
+make ciso-logs            # premier démarrage LENT : ~200 migrations Django,
+                           #   10-15 min constatées sur une machine déjà chargée
+                           #   par MISP+OpenCTI — healthcheck réglé en conséquence
+make ciso-superuser       # une fois la pile en ligne : premier compte admin
 ```
 
 Volumes Docker propres à cette pile (base SQLite, Qdrant) : `make ciso-destroy`
 les détruit avec les conteneurs (**perte totale**), séparément de `make
 destroy`/`make opencti-destroy`. `make stop-all` l'arrête proprement avec les
-deux autres piles si elle est présente.
+deux autres piles si elle est présente ; `make ciso-ps` en donne l'état.
 
 ## 6. Mise à jour de MISP
 

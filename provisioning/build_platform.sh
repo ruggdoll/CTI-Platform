@@ -30,7 +30,7 @@ attendre() {   # attendre <libellé> <timeout_s> <commande de test>
 HOST_ARG="${HOST:-}"
 PY=./.venv/bin/python
 
-etape "1/9  Fichiers d'environnement"
+etape "1/10  Fichiers d'environnement"
 if [ -n "${DOMAINE:-}" ]; then make --no-print-directory init DOMAINE="$DOMAINE"
 elif [ -n "$HOST_ARG" ]; then make --no-print-directory init HOST="$HOST_ARG"
 else make --no-print-directory init; fi
@@ -46,7 +46,7 @@ URL_MISP=$(lire vendor/misp-docker/.env BASE_URL)
 URL_OCTI=$(lire opencti/.env OPENCTI_BASE_URL)
 [ -n "$URL_OCTI" ] || URL_OCTI="$(lire opencti/.env OPENCTI_EXTERNAL_SCHEME)://$(lire opencti/.env OPENCTI_HOST):$(lire opencti/.env OPENCTI_PORT)"
 
-etape "2/9  Pile MISP"
+etape "2/10  Pile MISP"
 make --no-print-directory up
 KEY=$(grep -E '^MISP_KEY=' opencti/.env | cut -d= -f2)
 attendre "API MISP" 900 bash -c \
@@ -56,22 +56,23 @@ attendre "API MISP" 900 bash -c \
 # La façade HTTPS démarre ICI, pas avec le reste de la pile OpenCTI : les
 # outils de provisionnement joignent MISP par son URL PUBLIQUE, qui ne répond
 # que par elle dès lors que les piles sont repliées sur la boucle locale.
-# `compose up -d proxy` crée le réseau du projet OpenCTI au passage ; le reste
-# de la pile suivra à l'étape 5/9.
+# `compose up -d proxy` crée le réseau du projet OpenCTI (et celui de
+# CISO-Assistant, si CISO_HOSTNAME est renseigné) au passage ; le reste de la
+# pile suivra à l'étape 5/10.
 if grep -qsE '^MISP_HOSTNAME=.+' opencti/.env; then
-  etape "2 bis/9  Façade HTTPS"
+  etape "2 bis/10  Façade HTTPS"
   make --no-print-directory proxy-up
   attendre "MISP par son nom public ($URL_MISP)" 300 bash -c \
     "curl -sk -o /dev/null -w '%{http_code}' $URL_MISP/users/login | grep -qE '200|302'"
 fi
 
-etape "3/9  Environnement Python"
+etape "3/10  Environnement Python"
 [ -x "$PY" ] || make --no-print-directory venv
 
-etape "4/9  Socle MISP (galaxies, taxonomies, warninglists)"
+etape "4/10  Socle MISP (galaxies, taxonomies, warninglists)"
 make --no-print-directory socle-misp
 
-etape "5/9  Pile OpenCTI + socle ATT&CK"
+etape "5/10  Pile OpenCTI + socle ATT&CK"
 make --no-print-directory opencti-up
 attendre "API OpenCTI" 1800 bash -c \
   "curl -sk -o /dev/null -w '%{http_code}' $SONDE_OCTI/graphql | grep -qE '200|400|405'"
@@ -82,17 +83,30 @@ if grep -qsE '^MISP_HOSTNAME=.+' opencti/.env; then
   echo "  façade HTTPS incluse (profil proxy) — $URL_MISP et $URL_OCTI"
 fi
 
-etape "6/9  Pont OpenCTI -> MISP"
+etape "6/10  Pont OpenCTI -> MISP"
 make --no-print-directory bridge-setup
 make --no-print-directory opencti-up
 
-etape "7/9  Socle OpenCTI (rapports STIX publics VIGINUM)"
+etape "7/10  Socle OpenCTI (rapports STIX publics VIGINUM)"
 $PY provisioning/opencti_socle.py --yes
 
-etape "8/9  Connecteurs de flux OpenCTI"
+etape "8/10  Connecteurs de flux OpenCTI"
 make --no-print-directory opencti-feeds
 
-etape "9/9  Arrêt propre à l'extinction"
+etape "9/10  CISO-Assistant (GRC)"
+# Elle ne peut exister QU'en mode façade : aucun port publié dans son
+# docker-compose.yml, servie exclusivement par le nom CISO_HOSTNAME derrière
+# Traefik (pas un choix, une contrainte de la pile amont). `make init
+# DOMAINE=…` l'a déjà préparée (ciso-assistant/.env) ; `ciso-up` ne fait
+# qu'`up -d` (retour immédiat) — les migrations Django (10-15 min) tournent
+# ensuite en arrière-plan, comme les connecteurs OpenCTI de l'étape précédente.
+if grep -qsE '^CISO_HOSTNAME=.+' ciso-assistant/.env 2>/dev/null; then
+  make --no-print-directory ciso-up
+else
+  echo "  ignorée : pas de façade (DOMAINE=…) — aucune identité pour la servir"
+fi
+
+etape "10/10  Arrêt propre à l'extinction"
 # Sans cette unité, une extinction (ou le redémarrage d'un correctif de
 # sécurité) tue MariaDB et Elasticsearch au bout des 15 s de dockerd.
 # AUTOSTART=0 pour s'en passer.
@@ -105,12 +119,9 @@ fi
 printf '\n\033[1m== Plateforme construite\033[0m\n'
 echo "  MISP    : $URL_MISP"
 echo "  OpenCTI : $URL_OCTI"
-# CISO-Assistant n'est JAMAIS construite ici : 3e pile indépendante, sans
-# donnée à échanger avec les deux ci-dessus, elle ne se démarre que sur
-# demande (make ciso-up). `make init` l'a préparée (ciso-assistant/.env) dès
-# lors que DOMAINE était fourni ; on le rappelle plutôt que de la construire
-# en silence.
 if grep -qsE '^CISO_HOSTNAME=.+' ciso-assistant/.env 2>/dev/null; then
-  echo "  CISO-Assistant (GRC) : prête mais NON démarrée — make ciso-up"
+  CISO_HOSTNAME_VAL="$(lire ciso-assistant/.env CISO_HOSTNAME)"
+  echo "  CISO-Assistant : https://$CISO_HOSTNAME_VAL — migrations en cours"
+  echo "    (10-15 min, make ciso-logs pour suivre) ; premier accès : make ciso-superuser"
 fi
 echo "  Contrôle de bout en bout : make bridge-test"

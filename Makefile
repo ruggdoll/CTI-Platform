@@ -80,7 +80,9 @@ ifneq ($(DOMAINE),)
 MISP_HOSTNAME    ?= misp.$(DOMAINE)
 OPENCTI_HOSTNAME ?= opencti.$(DOMAINE)
 # CISO-Assistant (GRC) : 3e identité, à côté des deux autres, sans échange de
-# données avec elles. Optionnelle — `make ciso-up` la démarre, quand voulu.
+# données avec elles. `make build DOMAINE=…` la construit avec les deux
+# autres ; `make ciso-up` reste disponible seule (rejeu, façade ajoutée après
+# coup sur une plateforme déjà construite).
 CISO_HOSTNAME    ?= ciso.$(DOMAINE)
 HOST             := $(MISP_HOSTNAME)
 endif
@@ -239,7 +241,7 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	@if [ -n "$(DOMAINE)" ]; then \
 	  if [ -f "$(CISO_ENV)" ]; then echo "  $(CISO_ENV) existe déjà — inchangé."; else \
 	    printf '%s\n' "CISO_HOSTNAME=$(CISO_HOSTNAME)" > "$(CISO_ENV)"; \
-	    echo "  $(CISO_ENV) généré — 'make ciso-up' pour démarrer CISO-Assistant (optionnel)"; \
+	    echo "  $(CISO_ENV) généré — 'make build' la démarrera avec les deux autres piles ('make ciso-up' seule aussi)"; \
 	  fi; \
 	fi
 	@if [ -n "$(DOMAINE)" ]; then \
