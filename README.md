@@ -340,7 +340,7 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | certificat public, échéance | `make cert-manuel`, `make cert-etat` |
 | sauvegarde complète | `provisioning/backup_infra.sh` — volumes, montages liés, `.env`, dépôts ; conteneurs arrêtés |
 | arrêt propre, conteneurs conservés | `make stop-all` — ils repartent au démarrage suivant du démon |
-| arrêt, remise à zéro | `make down` / `make opencti-down` ; `make destroy` / `make opencti-destroy` (**perte totale**) |
+| arrêt, remise à zéro | `make down` / `make opencti-down` ; `make destroy` / `make opencti-destroy` (**perte totale**) — OpenCTI d'abord : ses connecteurs et la façade sont accrochés au réseau de MISP, `make down`/`make destroy` refusent de le retirer tant qu'ils y sont |
 
 ## Arborescence
 

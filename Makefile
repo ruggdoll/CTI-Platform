@@ -276,10 +276,35 @@ stop: ## ARRÊT PROPRE de la pile MISP : conteneurs stoppés mais CONSERVÉS (re
 
 .PHONY: down
 down: ## Arrête la stack (conserve les volumes)
+	@# Le réseau cti-platform-misp_default est REJOINT depuis l'extérieur par les
+	@# deux connecteurs OpenCTI et par la façade (profil proxy) — externes à ce
+	@# projet compose. Docker refuse de le retirer tant qu'un conteneur y est
+	@# encore attaché ("Resource is still in use"), quel que soit son projet :
+	@# contrôlé AVANT que 'down' échoue à mi-chemin, avec un message qui dit quoi
+	@# faire plutôt que l'erreur brute de Docker.
+	@attaches=$$($(RUN) 'docker network inspect cti-platform-misp_default --format "{{range .Containers}}{{.Name}} {{end}}"' 2>/dev/null); \
+	if [ -n "$$attaches" ]; then \
+	  echo "  ATTENTION : encore attachés au réseau cti-platform-misp_default : $$attaches"; \
+	  echo "    (connecteurs OpenCTI ou façade, probablement) — Docker refusera de le"; \
+	  echo "    retirer tant qu'ils y sont. Arrêter/détruire OpenCTI D'ABORD :"; \
+	  echo "    make opencti-down (ou opencti-destroy), puis relancer cette cible."; \
+	  exit 1; \
+	fi
 	$(RUN) '$(COMPOSE) down'
 
 .PHONY: destroy
 destroy: ## Arrête, supprime les volumes ET l'état monté en bind (perte totale)
+	@# Même contrôle que 'down' — voir son commentaire : la 'perte totale' promise
+	@# ici ne doit pas s'arrêter à mi-chemin (configs déjà vidées, volumes non
+	@# supprimés) sur un réseau encore accroché par OpenCTI ou la façade.
+	@attaches=$$($(RUN) 'docker network inspect cti-platform-misp_default --format "{{range .Containers}}{{.Name}} {{end}}"' 2>/dev/null); \
+	if [ -n "$$attaches" ]; then \
+	  echo "  ATTENTION : encore attachés au réseau cti-platform-misp_default : $$attaches"; \
+	  echo "    (connecteurs OpenCTI ou façade, probablement) — Docker refusera de le"; \
+	  echo "    retirer tant qu'ils y sont. Arrêter/détruire OpenCTI D'ABORD :"; \
+	  echo "    make opencti-down (ou opencti-destroy), puis relancer cette cible."; \
+	  exit 1; \
+	fi
 	@# vendor/misp-docker/{configs,logs,files,ssl,gnupg} sont des montages bind
 	@# gitignorés : ils SURVIVENT à 'down -v'. Or configs/database.php garde le
 	@# mot de passe MySQL du déploiement précédent — un 'make init' + 'make up'
