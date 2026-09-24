@@ -190,7 +190,16 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  echo "    à plusieurs identités (misp./opencti./ciso.<domaine>)."; \
 	fi
 	@echo "Nom public de la plateforme (CTI_HOSTNAME) : $(HOST)"
-	@if [ -f "$(ENV_FILE)" ]; then echo "  $(ENV_FILE) existe déjà — inchangé."; else \
+	@if [ -f "$(ENV_FILE)" ]; then \
+	  if [ -n "$(DOMAINE)" ] && ! grep -qsE '^BIND_ADDRESS=127\.0\.0\.1' "$(ENV_FILE)"; then \
+	    echo "  ATTENTION : $(ENV_FILE) existe déjà, généré SANS façade (mode HOST)."; \
+	    echo "    make init ne modifie jamais un .env existant — passer en mode"; \
+	    echo "    DOMAINE=$(DOMAINE) sur une plateforme déjà construite exige de repartir de"; \
+	    echo "    zéro (secrets et ports diffèrent) : make opencti-destroy && make destroy &&"; \
+	    echo "    rm vendor/misp-docker/.env opencti/.env ciso-assistant/.env && make build DOMAINE=$(DOMAINE)"; \
+	  fi; \
+	  echo "  $(ENV_FILE) existe déjà — inchangé."; \
+	else \
 	  cp .env.example "$(ENV_FILE)"; \
 	  sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=$(DEFAULT_PASSWORD)|" "$(ENV_FILE)"; \
 	  for key in GPG_PASSPHRASE ENCRYPTION_KEY SALT MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD; do \
@@ -211,7 +220,16 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	  fi; \
 	  echo "  $(ENV_FILE) généré (BASE_URL=https://$(HOST), org $(MISP_ORG))"; \
 	fi
-	@if [ -f "$(OCTI_ENV)" ]; then echo "  $(OCTI_ENV) existe déjà — inchangé."; else \
+	@if [ -f "$(OCTI_ENV)" ]; then \
+	  if [ -n "$(DOMAINE)" ] && ! grep -qsE '^MISP_HOSTNAME=' "$(OCTI_ENV)"; then \
+	    echo "  ATTENTION : $(OCTI_ENV) existe déjà, généré SANS façade (mode HOST)."; \
+	    echo "    make init ne modifie jamais un .env existant — passer en mode"; \
+	    echo "    DOMAINE=$(DOMAINE) sur une plateforme déjà construite exige de repartir de"; \
+	    echo "    zéro (secrets et ports diffèrent) : make opencti-destroy && make destroy &&"; \
+	    echo "    rm vendor/misp-docker/.env opencti/.env ciso-assistant/.env && make build DOMAINE=$(DOMAINE)"; \
+	  fi; \
+	  echo "  $(OCTI_ENV) existe déjà — inchangé."; \
+	else \
 	  cp opencti/.env.example "$(OCTI_ENV)"; \
 	  sed -i "s|^OPENCTI_ADMIN_PASSWORD=.*|OPENCTI_ADMIN_PASSWORD=$(DEFAULT_PASSWORD)|" "$(OCTI_ENV)"; \
 	  for key in MINIO_ROOT_PASSWORD RABBITMQ_DEFAULT_PASS OPENCTI_HEALTHCHECK_ACCESS_KEY; do \
