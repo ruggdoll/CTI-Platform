@@ -380,7 +380,7 @@ services:
   # abonnés TAXII. Les échanges internes passent par les noms de conteneurs.
   proxy:
     profiles: ["proxy"]
-    image: caddy:2.10-alpine
+    image: traefik:v3.7.13
     stop_grace_period: ${STOP_GRACE_APP:-30s}
     restart: always
     ports:
@@ -389,17 +389,21 @@ services:
     environment:
       MISP_HOSTNAME: ${MISP_HOSTNAME:-}
       OPENCTI_HOSTNAME: ${OPENCTI_HOSTNAME:-}
-      # Vide : autorité locale. Renseigné par `make cert-manuel` avec les deux
-      # chemins d'un certificat public.
-      CADDY_TLS: ${CADDY_TLS:-}
+      # Par défaut : certificat mkcert (autorité locale, `make proxy-cert`).
+      # Renseignés par `make cert-manuel` pour un certificat public à la place.
+      PROXY_TLS_CERT: ${PROXY_TLS_CERT:-}
+      PROXY_TLS_KEY: ${PROXY_TLS_KEY:-}
     volumes:
-      - {type: bind, source: ../proxy/Caddyfile, target: /etc/caddy/Caddyfile, read_only: true}
-      # L'AUTORITÉ LOCALE vit ici : détruire ce volume force tous les clients à
-      # refaire confiance à une nouvelle racine.
-      - caddy_data:/data
-      - caddy_config:/config
-      # Certificats publics éventuels, écrits par certbot dans le MÊME volume.
-      # En lecture seule : la façade les sert, elle ne les fabrique pas.
+      - {type: bind, source: ../proxy/traefik.yml, target: /etc/traefik/traefik.yml, read_only: true}
+      - {type: bind, source: ../proxy/dynamic.yml, target: /etc/traefik/dynamic/dynamic.yml, read_only: true}
+      # Certificat mkcert par défaut (autorité locale posée sur l'hôte, hors de
+      # Docker — voir `make proxy-cert` / `make proxy-ca`), lu en lecture
+      # seule : la façade le sert, elle ne le fabrique pas.
+      # Chemin SIBLING de /certs, pas un sous-répertoire : /certs porte le
+      # volume certbot ci-dessous, monté en lecture seule — y créer un point
+      # de montage pour ce bind échoue (« read-only file system »).
+      - {type: bind, source: ../proxy/certs, target: /certs-mkcert, read_only: true}
+      # Certificat public éventuel, écrit par certbot dans ce volume.
       - {type: volume, source: certbot, target: /certs, read_only: true}
     networks: [default, misp]
 
@@ -414,10 +418,6 @@ networks:
 # Noms de volumes explicites (pas de préfixe hérité du nom de projet compose) :
 # lisibles tels quels dans `docker volume ls`, par produit et par rôle.
 volumes:
-  caddy_data:
-    name: proxy_ac_locale
-  caddy_config:
-    name: proxy_config
   certbot:
     name: proxy_certificats
   esdata:

@@ -61,9 +61,10 @@ $(ENV_FILE):
 #   make build DOMAINE=<domaine>  un PROXY INVERSE devant les deux, sous deux
 #                                 identités : misp.<domaine> et opencti.<domaine>.
 #                                 Les piles n'écoutent plus que sur la boucle
-#                                 locale ; le proxy tient 80 et 443, termine le
-#                                 TLS avec sa propre autorité (`tls internal`)
-#                                 et les joint par le réseau Docker.
+#                                 locale ; le proxy (Traefik) tient 80 et 443,
+#                                 termine le TLS avec un certificat mkcert
+#                                 (autorité locale posée sur l'hôte) et les
+#                                 joint par le réseau Docker.
 #
 # Le proxy n'existe que pour l'EXTÉRIEUR. Les échanges internes — connecteurs
 # vers OpenCTI, OpenCTI vers Elasticsearch, pont MISP — passent par les noms de
@@ -159,6 +160,13 @@ MISP_ORG ?= ruggdoll
 build: ## CONSTRUIT TOUTE LA PLATEFORME dans le bon ordre — make build HOST=<fqdn|ip>
 	@HOST='$(HOST)' provisioning/build_platform.sh
 
+# TRUST_STORES=none devant chaque appel à mkcert, en mode DOMAINE : le SERVEUR
+# n'a pas besoin de faire confiance à sa propre autorité (il n'y a pas de
+# navigateur ici, seulement l'émission du certificat). VIDE ("TRUST_STORES=")
+# ne suffit PAS — mkcert le traite comme absent et installe quand même dans le
+# magasin système par défaut, via un sudo update-ca-certificates interactif qui
+# bloque un `make init`/`build` sans terminal (constaté le 2026-09-24). Seule
+# une valeur explicite ("none", n'appartenant à aucun magasin réel) coupe tout.
 .PHONY: init
 init: ## Crée les .env des deux piles avec des secrets aléatoires — make init HOST=<fqdn|ip>
 	@echo "Nom public de la plateforme (CTI_HOSTNAME) : $(HOST)"
@@ -206,9 +214,13 @@ init: ## Crée les .env des deux piles avec des secrets aléatoires — make ini
 	    sed -i "s|^OPENCTI_HOST=.*|OPENCTI_HOST=$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
 	    sed -i "s|^OPENCTI_EXTERNAL_SCHEME=.*|OPENCTI_EXTERNAL_SCHEME=https|" "$(OCTI_ENV)"; \
 	    sed -i "s|^OPENCTI_BASE_URL=.*|OPENCTI_BASE_URL=https://$(OPENCTI_HOSTNAME)|" "$(OCTI_ENV)"; \
-	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n' \
+	    printf '\n# Façade HTTPS — renseigné par make init DOMAINE=%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
 	      "$(DOMAINE)" "MISP_HOSTNAME=$(MISP_HOSTNAME)" "OPENCTI_HOSTNAME=$(OPENCTI_HOSTNAME)" \
-	      "PROXY_BIND=0.0.0.0" "PROXY_HTTP_PORT=80" "PROXY_HTTPS_PORT=443" >> "$(OCTI_ENV)"; \
+	      "PROXY_BIND=0.0.0.0" "PROXY_HTTP_PORT=80" "PROXY_HTTPS_PORT=443" \
+	      "PROXY_TLS_CERT=/certs-mkcert/cert.pem" "PROXY_TLS_KEY=/certs-mkcert/key.pem" >> "$(OCTI_ENV)"; \
+	    command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert (ou relancer prepare_host.sh --domaine)"; exit 1; }; \
+	    TRUST_STORES=none mkcert -install >/dev/null; \
+	    TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$(MISP_HOSTNAME)" "$(OPENCTI_HOSTNAME)"; \
 	  fi; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(HOST), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
 	fi
@@ -301,7 +313,8 @@ cert-manuel: ## CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE
 	  -d "*.$(DOMAINE)" --agree-tos --no-eff-email -m "$(CERT_EMAIL)"'
 	@echo
 	@echo "  Certificat obtenu. Renseigner dans $(OCTI_ENV) :"
-	@echo "    CADDY_TLS=/certs/live/$(DOMAINE)/fullchain.pem /certs/live/$(DOMAINE)/privkey.pem"
+	@echo "    PROXY_TLS_CERT=/certs/live/$(DOMAINE)/fullchain.pem"
+	@echo "    PROXY_TLS_KEY=/certs/live/$(DOMAINE)/privkey.pem"
 	@echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
 	@echo
 	@echo "  RENOUVELLEMENT : Let's Encrypt délivre pour 90 jours et le DNS-01 manuel"
@@ -311,17 +324,29 @@ cert-manuel: ## CERTIFICAT public par DNS-01 MANUEL — make cert-manuel DOMAINE
 .PHONY: cert-etat
 cert-etat: ## Échéance du certificat public servi par la façade
 	@$(RUN) 'docker run --rm -v proxy_certificats:/etc/letsencrypt certbot/certbot certificates' 2>/dev/null \
-	  | grep -E "Certificate Name|Domains|Expiry Date" || echo "  aucun certificat public (autorité locale)"
+	  | grep -E "Certificate Name|Domains|Expiry Date" || echo "  aucun certificat public (autorité locale mkcert)"
 
 .PHONY: proxy-up
 proxy-up: ## DÉMARRE la façade HTTPS seule (crée le réseau OpenCTI au passage)
 	@grep -qsE '^MISP_HOSTNAME=.+' "$(OCTI_ENV)" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 0; }
 	$(RUN) '$(OCTI) up -d proxy'
 
+.PHONY: proxy-cert
+proxy-cert: ## RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) — noms changés, expiration
+	@misp=$$(grep -E '^MISP_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
+	 octi=$$(grep -E '^OPENCTI_HOSTNAME=' "$(OCTI_ENV)" 2>/dev/null | cut -d= -f2); \
+	 test -n "$$misp" -a -n "$$octi" || { echo "  pas de façade configurée (make init DOMAINE=<domaine>)"; exit 1; }; \
+	 command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert"; exit 1; }; \
+	 TRUST_STORES=none mkcert -install >/dev/null; \
+	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$misp" "$$octi"; \
+	 echo "  certificat régénéré pour $$misp et $$octi (proxy/certs/)"; \
+	 echo "  puis : make opencti-up   (recrée la façade avec le nouveau certificat)"
+
 .PHONY: proxy-ca
-proxy-ca: ## EXPORTE la racine de l'autorité locale, à installer une fois sur chaque client
+proxy-ca: ## EXPORTE la racine mkcert de l'autorité locale, à installer une fois sur chaque client
+	@command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert"; exit 1; }
 	@mkdir -p dist
-	@$(RUN) '$(OCTI) cp proxy:/data/caddy/pki/authorities/local/root.crt ./dist/ac-locale.crt'
+	@cp "$$(mkcert -CAROOT)/rootCA.pem" ./dist/ac-locale.crt
 	@echo "  racine exportée : dist/ac-locale.crt"
 	@echo "  Debian/Ubuntu : sudo cp dist/ac-locale.crt /usr/local/share/ca-certificates/cti-platform.crt && sudo update-ca-certificates"
 	@echo "  Firefox tient son propre magasin : Paramètres > Vie privée > Certificats > Autorités > Importer."

@@ -102,9 +102,13 @@ et les joint par le réseau Docker. Elle n'existe **que pour l'extérieur** : le
 connecteurs, les workers et le pont MISP passent par les noms de conteneurs et
 ne la traversent jamais.
 
-Le TLS est assuré par une **autorité locale** que Caddy tient et renouvelle
-seul — aucune régénération périodique à prévoir, contrairement à des
-certificats fabriqués à la main.
+Le TLS est assuré par un certificat **mkcert** (autorité locale posée sur
+l'hôte, packagée dans Debian/Ubuntu) : `make init`/`make build DOMAINE=…` le
+génère pour les deux noms. Contrairement à un `openssl` maison, l'autorité
+n'a besoin d'être approuvée qu'**une fois** par poste client — les
+régénérations ultérieures du certificat (`make proxy-cert`) restent
+approuvées sans nouveau geste, tant que la racine mkcert de l'hôte ne change
+pas.
 
 ### Ce que chaque poste client doit faire — une fois
 
@@ -306,7 +310,7 @@ l'outillage d'alimentation, depuis les mêmes bundles.
 | `provisioning/diag_rootless.sh` | diagnostic d'un hôte rootless — ne modifie rien |
 | `provisioning/adressage.py`, `misp_cle_automation.py` | ce qu'un outil d'alimentation doit connaître, et la clé dédiée pour s'en servir |
 | `provisioning/systemd/` | unité d'arrêt propre des piles à l'extinction (`make autostart`) |
-| `proxy/Caddyfile` | façade HTTPS à deux identités (`make build DOMAINE=…`) |
+| `proxy/traefik.yml`, `proxy/dynamic.yml` | façade HTTPS à deux identités (`make build DOMAINE=…`) |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |
 
 ## Sécurité

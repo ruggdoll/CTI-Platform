@@ -113,6 +113,13 @@ apt-get update -qq
 apt-get install -y -qq uidmap dbus-user-session fuse-overlayfs slirp4netns iptables \
                        git make python3 python3-venv curl ca-certificates gnupg openssl >/dev/null
 ok "dépendances posées (uidmap, dbus-user-session, slirp4netns, outillage)"
+if [ -n "$DOMAINE" ]; then
+  # Autorité locale de la façade HTTPS (Traefik n'en tient pas une lui-même,
+  # contrairement à Caddy) : mkcert génère et signe le certificat des deux
+  # noms, `make init`/`make proxy-cert` l'invoquent sous le compte de service.
+  apt-get install -y -qq mkcert >/dev/null
+  ok "mkcert installé : $(mkcert -version 2>&1 | head -1)"
+fi
 
 etape "3  Docker CE + extras rootless"
 # Le paquet docker.io de Debian entre en conflit avec docker-ce et ne fournit

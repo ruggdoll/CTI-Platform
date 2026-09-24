@@ -1,0 +1,50 @@
+# Configuration DYNAMIQUE — routage des deux identités et certificat servi.
+#
+# Gabarit Go templaté par le provider file de Traefik : {{ env "..." }} est
+# résolu depuis l'environnement du CONTENEUR à chaque (re)chargement, comme
+# Caddy substituait {$VAR} dans son Caddyfile. Recréer le conteneur (make
+# opencti-up) pour prendre en compte un changement de ces variables.
+#
+# PROXY_TLS_CERT / PROXY_TLS_KEY choisissent la fabrique du certificat, sans
+# toucher à ce fichier :
+#   valeurs par défaut (make init/build DOMAINE=…) -> certificat mkcert,
+#                        autorité locale posée une fois sur les postes clients
+#                        (`make proxy-ca`), régénérée par `make proxy-cert`
+#   écrasées par `make cert-manuel`                -> certificat public
+#                        (Let's Encrypt, DNS-01 manuel via certbot)
+
+http:
+  routers:
+    misp:
+      rule: 'Host(`{{ env "MISP_HOSTNAME" }}`)'
+      entryPoints: [websecure]
+      service: misp
+      tls: {}
+
+    opencti:
+      rule: 'Host(`{{ env "OPENCTI_HOSTNAME" }}`)'
+      entryPoints: [websecure]
+      service: opencti
+      tls: {}
+
+  services:
+    misp:
+      loadBalancer:
+        servers:
+          # misp-core sert du HTTP clair sur 80 (la redirection vers 443 est
+          # commentée dans son nginx) : on termine le TLS ici, une seule fois,
+          # plutôt que de rechiffrer vers son certificat auto-signé interne.
+          - url: "http://misp-core:80"
+
+    opencti:
+      loadBalancer:
+        servers:
+          # Le live stream d'OpenCTI est du SSE : Traefik ne tamponne pas les
+          # réponses en flux par défaut, rien à régler (un nginx demanderait
+          # proxy_buffering off).
+          - url: "http://opencti:8080"
+
+tls:
+  certificates:
+    - certFile: '{{ env "PROXY_TLS_CERT" }}'
+      keyFile: '{{ env "PROXY_TLS_KEY" }}'

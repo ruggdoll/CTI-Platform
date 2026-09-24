@@ -286,29 +286,31 @@ ni d'un proxy.
 
 ### Les certificats
 
-`tls internal` : Caddy tient sa propre autorité, émet les certificats des deux
-noms et **les renouvelle seul**. Aucune régénération périodique — ce que
-demanderait un `openssl` maison. Le seul geste est d'importer la racine une
-fois par poste client (`make proxy-ca`), après quoi `MISP_VERIFY_SSL` peut
-passer à `1`.
+Traefik ne tient pas d'autorité de certification intégrée — contrairement à
+Caddy, qu'il remplace ici. La façade sert donc un certificat **mkcert**
+(paquet Debian/Ubuntu `mkcert`) : une autorité locale posée
+**sur l'hôte**, qui signe un certificat pour les deux noms. `make
+init`/`make build DOMAINE=…` génère l'autorité (si absente) et le certificat en
+un geste ; `make proxy-cert` régénère seulement le certificat (noms changés,
+expiration). Le seul geste côté poste client est d'importer la racine une
+fois (`make proxy-ca`), après quoi `MISP_VERIFY_SSL` peut passer à `1`.
 
-L'autorité vit dans le volume `proxy_ac_locale` : le détruire oblige tous les
-clients à refaire confiance à une nouvelle racine.
-
-**`make destroy` détruit ce volume.** Caddy en régénère une au redémarrage, et
-`dist/ac-locale.crt` comme le magasin système du poste gardent alors l'ancienne
-— silencieusement, jusqu'à ce qu'un navigateur crie. Constaté le 2026-09-19 :
-racine servie émise à 23:50 la veille, racine approuvée par le poste datée de
-trois jours plus tôt, empreintes différentes. Après toute reconstruction :
+L'autorité vit dans le magasin mkcert de l'utilisateur qui déploie
+(`mkcert -CAROOT`, hors de Docker) et le certificat dans `proxy/certs/` (bind
+monté en lecture seule dans le conteneur, jamais versionné) : **ni l'un ni
+l'autre ne vit dans un volume Docker.** `make destroy` ne détruit donc plus
+l'autorité — c'est le point faible qu'avait Caddy (racine régénérée
+silencieusement au redémarrage, constaté le 2026-09-19 : empreinte servie
+différente de celle approuvée trois jours plus tôt sur les postes clients).
+Après toute reconstruction, la racine reste la même ; seul un certificat
+absent ou expiré appelle un geste :
 
 ```bash
-make proxy-ca                     # ré-exporte la racine RÉELLEMENT servie
-openssl x509 -in dist/ac-locale.crt -noout -fingerprint -sha256
-sudo cp dist/ac-locale.crt /usr/local/share/ca-certificates/cti-platform.crt
-sudo update-ca-certificates       # Firefox tient son propre magasin, à refaire à part
+make proxy-cert                   # régénère le certificat si besoin (idempotent)
+openssl x509 -in proxy/certs/cert.pem -noout -fingerprint -sha256 -issuer
 ```
 
-Comparer les deux empreintes plutôt que supposer : c'est le même principe que
+En cas de doute, comparer plutôt que supposer : c'est le même principe que
 partout ailleurs ici, on lit l'état, on ne le déduit pas.
 
 ### Un certificat public, sans exposer la plateforme
@@ -332,7 +334,8 @@ l'hébergeur, **laisser le temps à la propagation** — le vérifier avec
 
 ```bash
 # dans opencti/.env
-CADDY_TLS=/certs/live/<domaine>/fullchain.pem /certs/live/<domaine>/privkey.pem
+PROXY_TLS_CERT=/certs/live/<domaine>/fullchain.pem
+PROXY_TLS_KEY=/certs/live/<domaine>/privkey.pem
 ```
 
 ```bash

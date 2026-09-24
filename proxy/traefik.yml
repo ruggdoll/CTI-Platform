@@ -1,0 +1,28 @@
+# Configuration STATIQUE du proxy inverse — deux identités, une seule façade.
+#
+# Il n'existe QUE pour l'extérieur : navigateurs, outils d'alimentation,
+# abonnés TAXII. Les échanges internes de la plateforme (connecteurs vers
+# OpenCTI, OpenCTI vers Elasticsearch, pont MISP) passent par les noms de
+# conteneurs sur les réseaux Docker et ne le traversent jamais.
+#
+# Le routage (noms d'hôtes, certificat) vit dans dynamic.yml, gabarit Go
+# templaté par variables d'environnement à chaque démarrage du conteneur —
+# cette configuration statique, elle, ne change jamais d'un déploiement à
+# l'autre et ne connaît ni MISP_HOSTNAME ni OPENCTI_HOSTNAME.
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+api:
+  dashboard: false
+
+log:
+  level: INFO

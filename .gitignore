@@ -33,3 +33,7 @@ opencti/data/
 
 # cache du socle VIGINUM et rapport d'autotest
 dist/
+
+# Certificat mkcert par défaut de la façade HTTPS (make proxy-cert) :
+# spécifique à l'autorité locale de l'hôte, jamais versionné.
+proxy/certs/*.pem
