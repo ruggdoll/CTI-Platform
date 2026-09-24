@@ -51,7 +51,7 @@ du -h "$WORK/bind-mounts/misp-docker-bind-mounts.tar" 2>/dev/null | sed 's/^/  /
 
 # --- 3. configuration : secrets et environnement -----------------------------
 log "configuration (.env, crontab, inventaire des images)"
-for f in "${REPO_PLATFORM}/vendor/misp-docker/.env" "${REPO_PLATFORM}/opencti/.env" ${REPO_FARM:+"${REPO_FARM}/.env"}; do
+for f in "${REPO_PLATFORM}/vendor/misp-docker/.env" "${REPO_PLATFORM}/opencti/.env" "${REPO_PLATFORM}/ciso-assistant/.env" ${REPO_FARM:+"${REPO_FARM}/.env"}; do
   [ -f "$f" ] && cp -a "$f" "$WORK/config/$(echo "${f#$REPO_PLATFORM/}" | tr / _)"
 done
 crontab -l > "$WORK/config/crontab.txt" 2>/dev/null || echo "(pas de crontab)" > "$WORK/config/crontab.txt"
@@ -92,12 +92,12 @@ log "manifeste"
   echo "- volumes/     : un .tar par volume Docker — MySQL MISP, Elasticsearch, RabbitMQ (file d'ingestion),"
   echo "                 Redis, MinIO, cache MISP, plus les volumes anonymes des conteneurs retirés"
   echo "- bind-mounts/ : configs, files (pièces jointes MISP), logs, ssl, gnupg de la pile MISP"
-  echo "- config/      : fichiers .env (SECRETS : clés MISP, jeton OpenCTI), crontab, images à retélécharger"
+  echo "- config/      : fichiers .env (SECRETS : clés MISP, jeton OpenCTI, ciso-assistant/.env s'il existe), crontab, images à retélécharger"
   echo "- state/       : déduplication des importateurs, caches de collecte du dépôt d'alimentation s'il est désigné, dist/"
   echo "- repos/       : les trois dépôts git avec leur historique"
   echo
   echo "## Restauration"
-  echo "1. détarer les dépôts, remettre les .env dans vendor/misp-docker/ et opencti/ (et celui du dépôt d'alimentation s'il était sauvegardé)"
+  echo "1. détarer les dépôts, remettre les .env dans vendor/misp-docker/, opencti/ et ciso-assistant/ s'il existe (et celui du dépôt d'alimentation s'il était sauvegardé)"
   echo "2. volumes : docker volume create <nom> puis"
   echo "   docker run --rm -v <nom>:/dst -v \$PWD/volumes:/src alpine tar xf /src/<nom>.tar -C /dst"
   echo "3. montages liés : tar xf bind-mounts/misp-docker-bind-mounts.tar -C <clone>/vendor/misp-docker (en root)"

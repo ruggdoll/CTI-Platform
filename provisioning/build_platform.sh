@@ -105,4 +105,12 @@ fi
 printf '\n\033[1m== Plateforme construite\033[0m\n'
 echo "  MISP    : $URL_MISP"
 echo "  OpenCTI : $URL_OCTI"
+# CISO-Assistant n'est JAMAIS construite ici : 3e pile indépendante, sans
+# donnée à échanger avec les deux ci-dessus, elle ne se démarre que sur
+# demande (make ciso-up). `make init` l'a préparée (ciso-assistant/.env) dès
+# lors que DOMAINE était fourni ; on le rappelle plutôt que de la construire
+# en silence.
+if grep -qsE '^CISO_HOSTNAME=.+' ciso-assistant/.env 2>/dev/null; then
+  echo "  CISO-Assistant (GRC) : prête mais NON démarrée — make ciso-up"
+fi
 echo "  Contrôle de bout en bout : make bridge-test"

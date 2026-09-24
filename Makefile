@@ -518,6 +518,10 @@ ciso-destroy: ## Arrête CISO-Assistant ET supprime ses volumes (base, Qdrant)
 ciso-logs: ## suit les logs CISO-Assistant
 	$(RUN) '$(CISO) logs -f --tail=100'
 
+.PHONY: ciso-ps
+ciso-ps: ## état des conteneurs CISO-Assistant
+	$(RUN) '$(CISO) ps'
+
 .PHONY: opencti-ps
 opencti-ps: ## état des conteneurs OpenCTI
 	$(RUN) '$(OCTI) ps'
