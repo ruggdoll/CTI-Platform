@@ -35,6 +35,14 @@ services:
     environment:
       - "FASTCGI_READ_TIMEOUT=600s"
       - "PHP_MEMORY_LIMIT=3072M"
+      # Le noyau de l'hôte est démarré avec ipv6.disable=1 : l'entrypoint amont
+      # (core/files/entrypoint_fpm.sh) écrit en dur `pm.status_listen = [::]:9003`
+      # (sans tester DISABLE_IPV6) et php-fpm meurt sur « socket(): Address
+      # family not supported by protocol (97) » — le port 9002 n'écoute jamais,
+      # misp-core reste « unhealthy ». Vide => l'entrypoint désactive
+      # pm.status_path/pm.status_listen (la page /fpm-status, inutile ici).
+      # Le port de service 9002, lui, respecte DISABLE_IPV6=true (0.0.0.0).
+      - "FASTCGI_LISTEN_STATUS="
     # nginx vit dans son propre service (misp-nginx, ci-dessous) : misp-core
     # ne fait plus que php-fpm, ne publie plus rien — rien à overrider ici.
 
