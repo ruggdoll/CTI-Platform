@@ -368,7 +368,7 @@ services:
       # écrit dans le Report OpenCTI avec MISP_URL lui-même
       # (connector.py:297, `{misp.url}/events/view/{id}`). Avec le nom interne,
       # chaque rapport exporté repartait avec une référence
-      # `https://<projet>-misp-core-1/events/view/N`, inutilisable pour un
+      # `https://<projet>-misp-nginx-1/events/view/N`, inutilisable pour un
       # lecteur — 362 rapports sur 365 au contrôle du 2026-09-09.
       # `extra_hosts` ci-dessous rend ce nom résolvable depuis le conteneur.
       - MISP_URL=${MISP_REFERENCE_URL}

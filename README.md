@@ -354,6 +354,7 @@ de les rejouer une par une.
 | `provisioning/prepare_host.sh`, `rootless_setup.sh` | préparation d'un hôte neuf : tout ce qui exige root, puis le démon rootless du compte |
 | `provisioning/systemd/` | arrêt propre à l'extinction (`make autostart`) ; MAJ quotidienne 3h00 (`make maj-nocturne-on`) |
 | `provisioning/maj_nocturne.sh` | pull + redémarrage complet, appelé par le timer `cti-platform-maj` |
+| `provisioning/es_tag_latest.py` | dernière version Elasticsearch (docker.elastic.co n'a pas de tag `latest`), appelé par `maj_nocturne.sh` |
 | `proxy/traefik.yml`, `proxy/dynamic/dynamic.yml` | façade HTTPS à deux ou trois identités (`make build-cti DOMAINE=…`) |
 | `ciso-assistant/docker-compose.yml` | CISO-Assistant (GRC), cycle de vie à part — `make up-ciso`, jamais `make build-cti` |
 | `docs/SETUP.md`, `docs/DELIVERY.md` | installation ; ce qui est livré et comment |

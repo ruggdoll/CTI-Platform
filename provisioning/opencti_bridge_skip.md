@@ -5,9 +5,9 @@ Le connecteur `connector-misp` (compose `opencti/docker-compose.yml`) ne dévers
 (acteurs, campagnes, TTP, rapports contextualisés) ; MISP reste le système de
 référence des IOC et alimente la détection.
 
-## État : forward-only (2026-09-03)
+## État : forward-only
 
-`MISP_IMPORT_FROM_DATE=2026-09-03`, `MISP_CREATE_TAGS_AS_LABELS=false`,
+`MISP_IMPORT_FROM_DATE` (voir `opencti/.env.example` pour sa valeur courante), `MISP_CREATE_TAGS_AS_LABELS=false`,
 `MISP_GUESS_THREATS_FROM_TAGS=false`.
 
 Le backfill historique complet (tous les events antérieurs) **n'est pas en

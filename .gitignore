@@ -14,7 +14,6 @@ __pycache__/
 vendor/misp-docker/configs/
 vendor/misp-docker/logs/
 vendor/misp-docker/files/
-vendor/misp-docker/ssl/
 vendor/misp-docker/gnupg/
 vendor/misp-docker/.env
 
