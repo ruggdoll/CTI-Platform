@@ -1,0 +1,35 @@
+# Unité systemd UTILISATEUR — arrêt propre des deux piles avant extinction.
+# Posée par `make autostart`, qui y substitue le chemin du dépôt et l'UID.
+#
+# Pourquoi elle existe : à l'extinction, systemd arrête le démon Docker
+# rootless, qui arrête les conteneurs avec son `--shutdown-timeout` par défaut
+# de 15 secondes. C'est trop court pour MariaDB, qui doit vider son buffer
+# pool, et pour Elasticsearch, qui doit écrire son translog : les deux sont
+# alors tués en pleine écriture et repartent en récupération au boot suivant.
+#
+# Le redémarrage automatique n'est PAS perdu pour autant : Docker ignore la
+# politique `restart` d'un conteneur arrêté explicitement, mais seulement
+# jusqu'au redémarrage du démon. Au boot, dockerd relance tout ce qui est en
+# `restart: always`.
+[Unit]
+Description=CTI-Platform — arrêt propre des piles MISP et OpenCTI
+Documentation=https://github.com/ruggdoll/CTI-Platform
+# Ordonnée APRÈS le démon : à l'arrêt l'ordre s'inverse, donc cette unité est
+# stoppée AVANT lui et ses ExecStop s'exécutent pendant que dockerd répond.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@REPO@
+Environment=PATH=/usr/bin:/bin:/usr/local/bin
+Environment=DOCKER_HOST=unix:///run/user/@UID@/docker.sock
+ExecStart=/bin/true
+ExecStop=/usr/bin/make -C @REPO@ stop-all
+# Laisser aux bases le temps de se fermer proprement. Le gestionnaire de
+# session a lui-même un plafond (voir `make autostart`, qui l'ajuste).
+TimeoutStopSec=@TIMEOUT@
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,30 @@
+# Rapport de contrôle du pont OpenCTI -> MISP (make bridge-test).
+#
+# Ce n'est PAS du renseignement : c'est un rapport synthétique, créé côté
+# OpenCTI comme n'importe quel autre rapport du pipeline, dont le seul but est
+# de vérifier qu'un objet créé dans OpenCTI redescend bien dans MISP par
+# connector-misp-intel. L'observable porte un domaine en `.invalid` (RFC 2606,
+# jamais résolvable) et un marquage explicite, pour qu'il ne puisse être
+# confondu avec un IOC réel s'il fuit dans un flux.
+slug: selftest_pont-opencti-misp
+tlp: clear
+author:
+  name: "ruggdoll (auto-test)"
+  class: organization
+  description: >
+    Identité technique de la plateforme, utilisée uniquement par les rapports
+    de contrôle de l'infrastructure. Ne publie aucun renseignement.
+report:
+  name: "Auto-test — pont OpenCTI vers MISP"
+  published: "2026-09-08"
+  url: "https://github.com/ruggdoll/CTI-Platform"
+  ref_label: "Rapport de contrôle interne (CTI-Platform)"
+  description: >
+    Rapport de contrôle de l'infrastructure. Il vérifie qu'un objet créé dans
+    OpenCTI est repris par le live stream et recréé comme event MISP par
+    connector-misp-intel. Aucune valeur de renseignement : le domaine porté
+    par ce rapport est en `.invalid` et n'existe pas.
+confidence: 70
+observables:
+  - comment: "valeur de contrôle, domaine .invalid non résolvable"
+    domain: ["pont-opencti-misp.invalid"]

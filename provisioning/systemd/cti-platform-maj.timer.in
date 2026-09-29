@@ -1,0 +1,12 @@
+# Unité systemd UTILISATEUR — déclenche cti-platform-maj.service chaque nuit à
+# 3h00. Posée telle quelle par `make maj-nocturne-on` (rien à substituer ici).
+[Unit]
+Description=CTI-Platform — déclenche la mise à jour quotidienne à 3h00
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

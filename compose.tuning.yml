@@ -1,0 +1,70 @@
+# Override compose de la pile MISP de CTI-Platform : réglages MariaDB pour la
+# charge d'imports d'IOC, publication des ports, et noms de volumes explicites.
+# Appliqué par le Makefile (-f vendor/misp-docker/docker-compose.yml -f compose.tuning.yml).
+services:
+  db:
+    # mariadb/redis/mail sont codés en dur dans vendor/misp-docker (submodule
+    # non modifié, voir README) : override ici pour les suivre en 'latest'
+    # comme le reste — misp-core/misp-modules/misp-guard respectent déjà
+    # CORE_RUNNING_TAG et cie.
+    image: mariadb:latest
+    # mysqladmin est absent des images MariaDB récentes (mariadb-admin l'a
+    # remplacé) : sans ça, healthcheck en échec permanent malgré une base qui
+    # tourne, et misp-core ne démarre jamais (dépend de db_healthy).
+    healthcheck:
+      test: mariadb-admin --user=$$MYSQL_USER --password=$$MYSQL_PASSWORD status
+    # MariaDB doit vider son buffer pool avant de rendre la main. Le défaut
+    # Docker est de 10 s sur TOUT chemin d'arrêt — y compris l'arrêt du démon,
+    # que `compose stop -t` ne couvre pas. Voir opencti/docker-compose.yml.
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
+    volumes:
+      - ${CTI_PLATFORM_ROOT}/docker/mariadb-tuning.cnf:/etc/mysql/mariadb.conf.d/99-cti-platform.cnf:ro
+    # cgroup : réserver la RAM au buffer pool (voir INNODB_BUFFER_POOL_SIZE dans .env)
+    mem_limit: 16g
+    mem_reservation: 8g
+
+  redis:
+    image: valkey/valkey:latest
+
+  mail:
+    image: ghcr.io/egos-tech/smtp:latest
+
+  misp-core:
+    # imports longs : ne pas tuer un worker de feed en cours — à l'arrêt non plus
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
+    environment:
+      - "FASTCGI_READ_TIMEOUT=600s"
+      - "PHP_MEMORY_LIMIT=3072M"
+    # nginx vit dans son propre service (misp-nginx, ci-dessous) : misp-core
+    # ne fait plus que php-fpm, ne publie plus rien — rien à overrider ici.
+
+  misp-nginx:
+    stop_grace_period: ${STOP_GRACE_DATA:-120s}
+    # 127.0.0.1 en mode façade, 0.0.0.0 sinon (voir opencti/docker-compose.yml).
+    # `!override` : l'amont publie déjà ses ports sans adresse de liaison.
+    ports: !override
+      - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTP_PORT:-80}:8080"
+      - "${BIND_ADDRESS:-0.0.0.0}:${CORE_HTTPS_PORT:-443}:8443"
+    # BASE_URL est en https:// (Traefik termine le TLS public) : misp-nginx
+    # refuse de démarrer sans certificat local dans ce cas (nginx/files/01-listen.sh
+    # du submodule). On lui donne le même certificat mkcert que Traefik, monté
+    # tel quel — jamais copié, une seule source de vérité. `!override` : la
+    # base monte tout ./ssl (répertoire), on ne veut que ces deux fichiers.
+    # key.pem doit rester lisible par tous (make init/proxy-cert le chmod 644) :
+    # misp-nginx tourne en utilisateur non-root, dont l'UID ne correspond à
+    # rien côté hôte en rootless (seul le root conteneur, ex. Traefik, mappe
+    # sur cti-platform).
+    volumes: !override
+      - ${CTI_PLATFORM_ROOT}/proxy/certs/cert.pem:/etc/nginx/certs/cert.pem:ro
+      - ${CTI_PLATFORM_ROOT}/proxy/certs/key.pem:/etc/nginx/certs/key.pem:ro
+
+# Noms de volumes explicites : sans `name:`, Docker préfixe par le nom du projet
+# compose et on se retrouve avec des volumes au nom hérité de l'historique du
+# dépôt. Ici on les nomme par produit et par rôle, lisibles dans `docker volume ls`.
+volumes:
+  mysql_data:
+    name: misp_bdd
+  cache_data:
+    name: misp_cache
+  misp_guard_ca:
+    name: misp_guard_ca

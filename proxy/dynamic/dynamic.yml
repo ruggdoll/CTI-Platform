@@ -1,0 +1,91 @@
+# Configuration DYNAMIQUE — routage des identités (MISP, OpenCTI, CISO-Assistant
+# optionnelle) et certificat servi.
+#
+# Gabarit Go templaté par le provider file de Traefik : {{ env "..." }} est
+# résolu depuis l'environnement du CONTENEUR à chaque (re)chargement, comme
+# Caddy substituait {$VAR} dans son Caddyfile. Recréer le conteneur (make
+# opencti-up) pour prendre en compte un changement de ces variables.
+#
+# PROXY_TLS_CERT / PROXY_TLS_KEY choisissent la fabrique du certificat, sans
+# toucher à ce fichier :
+#   valeurs par défaut (make init/build DOMAINE=…) -> certificat mkcert,
+#                        autorité locale posée une fois sur les postes clients
+#                        (`make proxy-ca`), régénérée par `make proxy-cert`
+#   écrasées par `make cert-manuel`                -> certificat public
+#                        (Let's Encrypt, DNS-01 manuel via certbot)
+
+http:
+  routers:
+    misp:
+      rule: 'Host(`{{ env "MISP_HOSTNAME" }}`)'
+      entryPoints: [websecure]
+      service: misp
+      tls: {}
+
+    opencti:
+      rule: 'Host(`{{ env "OPENCTI_HOSTNAME" }}`)'
+      entryPoints: [websecure]
+      service: opencti
+      tls: {}
+
+    # CISO-Assistant est optionnelle (make ciso-up) : ces deux routeurs
+    # n'existent dans la config rendue que si CISO_HOSTNAME est non vide —
+    # if/end d'un gabarit Go, évalué avant le parseur YAML (qui ne voit
+    # jamais de commentaire : tout le fichier est du texte pour Traefik).
+    {{ if env "CISO_HOSTNAME" }}
+    ciso-api:
+      # Priorité explicite : /api doit gagner sur la route racine ci-dessous.
+      rule: 'Host(`{{ env "CISO_HOSTNAME" }}`) && PathPrefix(`/api`)'
+      entryPoints: [websecure]
+      service: ciso-backend
+      priority: 10
+      tls: {}
+
+    ciso:
+      rule: 'Host(`{{ env "CISO_HOSTNAME" }}`)'
+      entryPoints: [websecure]
+      service: ciso-frontend
+      priority: 1
+      tls: {}
+    {{ end }}
+
+  services:
+    misp:
+      loadBalancer:
+        servers:
+          # misp-nginx = le frontend web de MISP (fichiers statiques + FastCGI
+          # vers misp-core), pas un second reverse-proxy. Sert en HTTPS avec
+          # le même certificat mkcert que Traefik (compose.tuning.yml) —
+          # insecureSkipVerify : ce certificat ne couvre pas "misp-nginx",
+          # le nom du conteneur.
+          - url: "https://misp-nginx:8443"
+        serversTransport: misp-interne
+
+    opencti:
+      loadBalancer:
+        servers:
+          # Le live stream d'OpenCTI est du SSE : Traefik ne tamponne pas les
+          # réponses en flux par défaut, rien à régler (un nginx demanderait
+          # proxy_buffering off).
+          - url: "http://opencti:8080"
+
+    {{ if env "CISO_HOSTNAME" }}
+    ciso-backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8000"
+
+    ciso-frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"
+    {{ end }}
+
+  serversTransports:
+    misp-interne:
+      insecureSkipVerify: true
+
+tls:
+  certificates:
+    - certFile: '{{ env "PROXY_TLS_CERT" }}'
+      keyFile: '{{ env "PROXY_TLS_KEY" }}'

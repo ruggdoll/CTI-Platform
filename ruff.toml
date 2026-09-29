@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[lint.per-file-ignores]
+# définitions de données (descriptions, listes d'IOC) volontairement longues
+"provisioning/amnesty/build_amnesty.py" = ["E501"]

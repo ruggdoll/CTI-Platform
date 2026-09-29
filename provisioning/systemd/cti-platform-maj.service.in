@@ -1,0 +1,19 @@
+# Unité systemd UTILISATEUR — MAJ quotidienne (pull + redémarrage complet).
+# Posée par `make maj-nocturne-on`, qui y substitue le chemin du dépôt et l'UID.
+# Déclenchée par cti-platform-maj.timer (3h00). Voir provisioning/maj_nocturne.sh
+# pour la logique (pull avant down : jamais de coupure pour une image absente).
+[Unit]
+Description=CTI-Platform — mise à jour quotidienne (pull images + redémarrage)
+Documentation=https://github.com/ruggdoll/CTI-Platform
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+Environment=PATH=/usr/bin:/bin:/usr/local/bin
+Environment=DOCKER_HOST=unix:///run/user/@UID@/docker.sock
+ExecStart=@REPO@/provisioning/maj_nocturne.sh
+# Fenêtre annoncée 3h-4h : de la marge dans le plafond, mais on ne veut pas
+# qu'un pull qui traîne (gros paquet réseau, upstream lent) tourne indéfiniment.
+TimeoutStartSec=3000
