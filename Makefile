@@ -267,7 +267,7 @@ init: # Crée les .env des trois briques avec des secrets aléatoires — make i
 	  command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert (ou relancer prepare_host.sh --domaine)"; exit 1; }; \
 	  TRUST_STORES=none mkcert -install >/dev/null; \
 	  TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$(DOMAINE)" "*.$(DOMAINE)"; \
-	  chmod 644 proxy/certs/key.pem; \
+	  chmod 644 proxy/certs/cert.pem proxy/certs/key.pem; \
 	  echo "  $(OCTI_ENV) généré (OPENCTI_HOST=$(OPENCTI_HOSTNAME), org $(MISP_ORG), pont MISP en forward-only depuis aujourd'hui)"; \
 	fi
 	@if [ -f "$(CISO_ENV)" ]; then echo "  $(CISO_ENV) existe déjà — inchangé."; else \
@@ -287,6 +287,11 @@ init: # Crée les .env des trois briques avec des secrets aléatoires — make i
 
 .PHONY: _misp-up
 _misp-up: $(ENV_FILE) # Démarre la stack MISP (build/pull au 1er lancement)
+	@# misp-nginx (non-root, UID décalé en rootless) lit cert.pem/key.pem montés
+	@# tels quels : sans droit de lecture pour tous, [emerg] « Permission denied »
+	@# et redémarrage en boucle. Aussi appliqué ici pour les déploiements dont le
+	@# certificat existait déjà (mkcert crée cert.pem en 640).
+	@chmod 644 proxy/certs/cert.pem proxy/certs/key.pem 2>/dev/null || true
 	$(RUN) '$(COMPOSE) up -d'
 	@echo "MISP démarre… suivre avec 'make logs'. Prêt quand le healthcheck misp-core passe."
 
@@ -395,7 +400,7 @@ proxy-cert: # RÉGÉNÈRE le certificat mkcert de la façade (autorité locale) 
 	 command -v mkcert >/dev/null 2>&1 || { echo "  mkcert introuvable — apt install mkcert"; exit 1; }; \
 	 TRUST_STORES=none mkcert -install >/dev/null; \
 	 TRUST_STORES=none mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem "$$domaine" "*.$$domaine"; \
-	 chmod 644 proxy/certs/key.pem; \
+	 chmod 644 proxy/certs/cert.pem proxy/certs/key.pem; \
 	 echo "  certificat régénéré pour $$domaine et *.$$domaine (proxy/certs/) — couvre toute future identité, sans y repenser"; \
 	 echo "  puis : make up-cti   (recrée la façade avec le nouveau certificat)"
 
